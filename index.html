@@ -143,11 +143,11 @@
         try {
             document.getElementById('ble-status').innerText = "🟡 請求藍牙權限中...";
             
-            // ⭐ 這裡會跳出配對視窗，所以「必須」由使用者點擊按鈕觸發
             if (!bleDevice) {
+                // ⭐ 關鍵修正：移除 acceptAllDevices，改用 filters 精準尋找設備名稱
                 bleDevice = await navigator.bluetooth.requestDevice({
-                    acceptAllDevices: true,
-                    optionalServices: [0x00FF]
+                    filters: [{ name: 'Tune' }], // 告訴手機只准找叫 "Tune" 的設備
+                    optionalServices: ['000000ff-0000-1000-8000-00805f9b34fb']   // 宣告我們要用這個服務大門
                 });
                 bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
             }
@@ -156,18 +156,22 @@
             await connectGATT();
             
         } catch(error) {
-            console.error(error);
+            // ⭐ 加上把 error 印出來，如果再失敗，你可以在電腦按 F12 看看具體報什麼錯
+            console.error("藍牙連線錯誤:", error); 
             showOffline("🔴 權限被拒絕或連線失敗");
         }
     }
 
     // ⭐ 5. 背景靜默重連專用 (不會彈出視窗，不會觸發 Security Error)
+    // ⭐ 5. 背景靜默重連專用 (不會彈出視窗，不會觸發 Security Error)
     async function connectGATT() {
         document.getElementById('ble-status').innerText = "🟡 建立底層 GATT 連線...";
         try {
-            const server = await bleDevice.gatt.connect(); // 直接使用已授權的設備連線
-            const service = await server.getPrimaryService(0x00FF);
-            txCharacteristic = await service.getCharacteristic(0xFF01);
+            const server = await bleDevice.gatt.connect(); 
+            
+            // ⭐ 關鍵修正：必須與 optionalServices 使用完全相同的 128-bit 字串！
+            const service = await server.getPrimaryService('000000ff-0000-1000-8000-00805f9b34fb');
+            txCharacteristic = await service.getCharacteristic('0000ff01-0000-1000-8000-00805f9b34fb');
 
             document.getElementById('ble-status').className = 'status-bar status-online';
             document.getElementById('ble-status').innerText = '🟢 藍牙已連線';
