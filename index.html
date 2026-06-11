@@ -157,9 +157,9 @@
     // 4. 初次連線：需要使用者點擊觸發 (會彈出選擇視窗)
     async function connectBLE() {
         try {
-            document.getElementById('ble-status').innerText = "請求藍芽權限中...";
+            document.getElementById('ble-status').innerText = "🟡 請求藍牙權限中...";
             
-            // 嚴格過濾名稱為 "Tune"
+            // 照著你截圖上的資訊，精準打擊！
             bleDevice = await navigator.bluetooth.requestDevice({
                 filters: [{ name: 'Tune' }], 
                 optionalServices: ['000000ff-0000-1000-8000-00805f9b34fb'] 
@@ -169,7 +169,32 @@
             await connectGATT();
         } catch(error) {
             console.error("連線錯誤:", error);
-            showOffline("🔴 找不到 Tune 或權限被拒");
+            showOffline("🔴 找不到 Tune 或被系統佔用");
+        }
+    }
+
+    async function connectGATT() {
+        document.getElementById('ble-status').innerText = "🟡 建立 GATT 連線...";
+        try {
+            const server = await bleDevice.gatt.connect(); 
+            
+            // 精準對應截圖裡的 UUID
+            const service = await server.getPrimaryService('000000ff-0000-1000-8000-00805f9b34fb');
+            txCharacteristic = await service.getCharacteristic('0000ff01-0000-1000-8000-00805f9b34fb');
+            
+            await txCharacteristic.startNotifications();
+            txCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
+            
+            document.getElementById('ble-status').className = 'status-bar status-online';
+            document.getElementById('ble-status').innerText = '🟢 藍牙已連線';
+            document.getElementById('connectBtn').style.display = 'none';
+            document.getElementById('tuning').style.opacity = '1';
+            document.getElementById('tuning').style.pointerEvents = 'auto';
+
+            await syncFromESP32();
+        } catch (e) {
+            console.error("GATT 連線失敗:", e);
+            showOffline("🔴 GATT 連線失敗，請確認未被其他程式佔用");
         }
     }
 	function handleNotifications(event) {
@@ -190,29 +215,7 @@
             console.log("收到其他數據:", value);
         }
     }
-    async function connectGATT() {
-        document.getElementById('ble-status').innerText = "🟡 建立底層 GATT 連線...";
-        try {
-            const server = await bleDevice.gatt.connect(); 
-            
-            // ⭐ 關鍵修正：必須與 optionalServices 使用完全相同的 128-bit 字串！
-            const service = await server.getPrimaryService('000000ff-0000-1000-8000-00805f9b34fb');
-            txCharacteristic = await service.getCharacteristic('0000ff01-0000-1000-8000-00805f9b34fb');
-			await txCharacteristic.startNotifications();
-            txCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
-            // ==========================================
-            document.getElementById('ble-status').className = 'status-bar status-online';
-            document.getElementById('ble-status').innerText = '🟢 藍牙已連線';
-            document.getElementById('connectBtn').style.display = 'none';
-            document.getElementById('tuning').style.opacity = '1';
-            document.getElementById('tuning').style.pointerEvents = 'auto';
-
-            await syncFromESP32();
-        } catch (e) {
-            console.error("GATT 連線失敗", e);
-            showOffline("🔴 GATT 連線失敗，請手動重連");
-        }
-    }
+    
 
     // 6. 斷線事件處理
     function onDisconnected(event) {
