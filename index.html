@@ -204,23 +204,30 @@
         }
     }
     async function connectGATT() {
-        document.getElementById('ble-status').innerText = "🟡 建立底層 GATT 連線...";
+        document.getElementById('ble-status').innerText = "🟡 正在握手...";
+        
+        // ⭐ 定義統一的 UUID 對照表
+        const SERVICE_UUID = '000000ff-0000-1000-8000-00805f9b34fb';
+        const CHAR_UUID    = '0000ff01-0000-1000-8000-00805f9b34fb';
+
         try {
             const server = await bleDevice.gatt.connect(); 
             
-            // ⭐ 請確認這兩行跟 ESP32 裡宣告的一模一樣
-            // 如果你的 ESP32 用的是 16-bit 0xFF, 在網頁這必須寫成完整的 128-bit
-            const service = await server.getPrimaryService('000000ff-0000-1000-8000-00805f9b34fb');
-            txCharacteristic = await service.getCharacteristic('0000ff01-0000-1000-8000-00805f9b34fb');
+            // 手機與電腦都強制吃這個 128-bit 字串，這是 Web Bluetooth 的標準規範
+            const service = await server.getPrimaryService(SERVICE_UUID);
+            txCharacteristic = await service.getCharacteristic(CHAR_UUID);
             
-            // 如果這兩行執行沒報錯，代表連線成功！
+            // ... (後續保持不變)
             await txCharacteristic.startNotifications();
             txCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
             
-            // ... (後續 UI 更新保持原樣)
+            // UI 更新
+            document.getElementById('ble-status').className = 'status-bar status-online';
+            document.getElementById('ble-status').innerText = '🟢 藍牙已連線';
+            // ...
         } catch (e) {
-            console.error("GATT 連線失敗，可能是 UUID 不匹配:", e);
-            showOffline("🔴 GATT 連線失敗");
+            console.error("GATT 連線失敗:", e);
+            showOffline("🔴 藍牙連線被拒，請檢查權限或重新配對");
         }
     }
 
