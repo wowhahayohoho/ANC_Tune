@@ -157,17 +157,13 @@
     // 4. 初次連線：需要使用者點擊觸發 (會彈出選擇視窗)
     async function connectBLE() {
         try {
-            document.getElementById('ble-status').innerText = "🟡 請求藍牙權限中...";
+            document.getElementById('ble-status').innerText = "請求藍芽權限中...";
             
-            // 🌟 終極混合寫法：同時餵給它 16-bit 數字與 128-bit 字串，大小通吃！
+            // 嚴格過濾名稱為 "Tune"
             bleDevice = await navigator.bluetooth.requestDevice({
                 filters: [{ name: 'Tune' }], 
-                optionalServices: [
-                    0x00FF,                                  // 🍎 照顧 iOS (Bluefy/WebBLE) 與部分手機
-                    '000000ff-0000-1000-8000-00805f9b34fb'   // 💻 照顧嚴格的 Windows Chrome 
-                ]
+                optionalServices: ['000000ff-0000-1000-8000-00805f9b34fb'] 
             });
-            
             bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
             
             await connectGATT();
