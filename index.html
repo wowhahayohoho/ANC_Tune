@@ -160,21 +160,18 @@
             document.getElementById('ble-status').innerText = "🟡 請求藍牙權限中...";
             
             if (!bleDevice) {
-                // ⭐ 關鍵修正：移除 acceptAllDevices，改用 filters 精準尋找設備名稱
+                // ⭐ 為了最大相容性，這裡改用 acceptAllDevices，並指定完整的 128-bit UUID
                 bleDevice = await navigator.bluetooth.requestDevice({
-                    filters: [{ name: 'Tune' }], // 告訴手機只准找叫 "Tune" 的設備
-                    optionalServices: ['000000ff-0000-1000-8000-00805f9b34fb']   // 宣告我們要用這個服務大門
+                    filters: [{ name: 'ESP32_ANC' }], // ⚠️ 請確認這裡的名字跟你 ESP32 裡定義的名字一模一樣！
+                    optionalServices: ['000000ff-0000-1000-8000-00805f9b34fb'] 
                 });
                 bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
             }
             
-            // 取得權限後，進入底層連線
             await connectGATT();
-            
         } catch(error) {
-            // ⭐ 加上把 error 印出來，如果再失敗，你可以在電腦按 F12 看看具體報什麼錯
-            console.error("藍牙連線錯誤:", error); 
-            showOffline("🔴 權限被拒絕或連線失敗");
+            console.error("連線錯誤:", error); 
+            showOffline("🔴 連線失敗");
         }
     }
 	function handleNotifications(event) {
