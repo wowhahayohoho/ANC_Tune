@@ -173,34 +173,21 @@
         }
     }
 	function handleNotifications(event) {
-        // 解析收到的 byte array 變成字串
         let value = new TextDecoder().decode(event.target.value);
         console.log("📥 收到 ESP32 推播:", value);
 
-        // 如果字串開頭是 "SCENE,"，代表是場景切換情報
         if (value.startsWith("SCENE,")) {
             let scene_mode = parseInt(value.split(",")[1]);
             let sceneBox = document.getElementById("scene_display");
             
-            if (scene_mode === 0) {
-                sceneBox.innerText = "🟢 智能場景：安靜環境 (通透)";
-                sceneBox.style.background = "#27ae60"; // 質感綠
-            } 
-            else if (scene_mode === 1) {
-                sceneBox.innerText = "🟡 智能場景：吵雜環境 (強效降噪)";
-                sceneBox.style.background = "#f39c12"; // 質感黃
-            } 
-            else if (scene_mode === 2) {
-                sceneBox.innerText = "🔴 智能場景：對話中 (語音強化)";
-                sceneBox.style.background = "#e74c3c"; // 質感紅
+            if (sceneBox) {
+                if (scene_mode === 0) { sceneBox.innerText = "🟢 智能場景：安靜環境 (通透)"; sceneBox.style.background = "#27ae60"; } 
+                else if (scene_mode === 1) { sceneBox.innerText = "🟡 智能場景：吵雜環境 (強效降噪)"; sceneBox.style.background = "#f39c12"; } 
+                else if (scene_mode === 2) { sceneBox.innerText = "🔴 智能場景：對話中 (語音強化)"; sceneBox.style.background = "#e74c3c"; }
             }
-        }
-		else {
-            printToConsole(value);
-            // 如果正在自動收集，順手抄進 .txt 的字串裡
-            if (isCollectingLog) {
-                collectedLogData += value + "\n";
-            }
+        } else {
+            // ⭐ 把會報錯的 printToConsole 拿掉了，改成單純印在背後
+            console.log("收到其他數據:", value);
         }
     }
     async function connectGATT() {
