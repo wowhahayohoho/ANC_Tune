@@ -176,11 +176,11 @@
             document.getElementById('ble-status').innerText = "🟡 請求藍牙權限中...";
             
             if (!bleDevice) {
-                // ⭐ 關鍵修正：移除 acceptAllDevices，改用 filters 精準尋找設備名稱
+                // 🌟 改用 namePrefix: 'E' 來過濾，只抓開頭是 E 的裝置
                 bleDevice = await navigator.bluetooth.requestDevice({
-					acceptAllDevices: true, // ⚠️ 注意：不能與 filters 同時使用
-					optionalServices: ['000000ff-0000-1000-8000-00805f9b34fb']
-				});
+                    filters: [{ namePrefix: 'E' }], 
+                    optionalServices: ['000000ff-0000-1000-8000-00805f9b34fb']   // 宣告我們要用這個服務大門
+                });
                 bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
             }
             
