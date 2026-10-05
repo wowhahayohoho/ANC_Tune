@@ -41,13 +41,13 @@
             <input type="range" id="slider_call" min="0" max="2" step="0.1" value="0.8" oninput="sendTuningCmd('set_callvol', this.value, 'val_call')">
         </div>
         <hr style="border:0; border-top:1px solid #ddd; margin: 20px 0;">
-        <h4 style="margin-top:0;">8段 EQ 調整 (dB)</h4>
+        <h4 style="margin-top:0;">8段 EQ 基準值調整 (dB)</h4>
         <div id="eq-container"></div>
         <hr style="border:0; border-top:1px solid #ddd; margin: 20px 0;">
         <button id="saveBtn" onclick="saveToFlash()" style="background-color: #f39c12;">💾 永久儲存當前參數至耳機</button>
         <button id="defaultBtn" onclick="loadDefault()" style="background-color: #e74c3c;">🔄 恢復原廠預設值</button>
         
-        <!-- 新增藍牙名稱設定區塊 -->
+        <!-- 藍牙名稱設定區塊 -->
         <hr style="border:0; border-top:1px solid #ddd; margin: 20px 0;">
         <h4 style="margin-top:0;">📛 藍牙名稱動態設定</h4>
         <div style="margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
@@ -57,7 +57,7 @@
         </div>
         <div style="margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
             <label style="flex: 1; font-size: 14px;">低功耗藍牙 (BLE): </label>
-            <input type="text" id="bleNameInput" placeholder="例如: Tune" maxlength="31" style="flex: 2; padding: 8px; border-radius: 4px; border: 1px solid #ccc;">
+            <input type="text" id="bleNameInput" placeholder="例如: ESP32_ANC_BLE" maxlength="31" style="flex: 2; padding: 8px; border-radius: 4px; border: 1px solid #ccc;">
             <button onclick="sendNameCmd('ble')" style="width: auto; padding: 8px 12px; margin: 0; background-color: #27ae60;">更新</button>
         </div>
         <p style="color: #c0392b; font-size: 0.8em; margin-top: 5px;">* 提醒：更改後，手機藍牙可能需要「忘記此裝置」並重連才會顯示新名稱。</p>
@@ -80,6 +80,9 @@
 </div>
 
 <script>
+    const SERVICE_UUID = '000000ff-0000-1000-8000-00805f9b34fb';
+    const CHAR_UUID    = '0000ff01-0000-1000-8000-00805f9b34fb';
+
     // 全域變數定義
     let bleDevice = null;
     let txCharacteristic = null;
@@ -87,6 +90,7 @@
     let isSending = false;
     let isCollectingLog = false;
     let collectedLogData = "";
+
     // 1. 初始化界面
     const eqFreqs = ["250Hz", "500Hz", "1kHz", "2kHz", "3kHz", "4kHz", "6kHz", "8kHz"];
     const eqContainer = document.getElementById('eq-container');
@@ -113,7 +117,6 @@
 
     // 2. 定時器：發送緩衝區指令 (加入防撞牆機制)
     setInterval(async () => {
-        // ⭐ 加強防護：確認藍牙物件存在且處於連線狀態，才允許發送
         if (isSending || Object.keys(pendingCommands).length === 0 || !txCharacteristic) return;
         if (!bleDevice || !bleDevice.gatt.connected) return; 
 
@@ -127,11 +130,10 @@
             console.log("✅ 成功同步指令:", cmd);
         } catch (e) {
             console.error("❌ 發送失敗:", e);
-            // ⭐ 如果是 GATT 崩潰未知錯誤，不要再把指令塞回去卡死迴圈
             if (e.name !== 'NetworkError' && !e.message.includes('GATT Error Unknown')) {
                 pendingCommands[key] = cmd; 
             } else {
-                pendingCommands = {}; // 遇到嚴重斷線，清空待發送隊列
+                pendingCommands = {}; 
             }
         } finally {
             isSending = false;
@@ -145,11 +147,10 @@
             const syncData = new TextDecoder().decode(value);
             console.log("📥 收到設備狀態:", syncData);
 
-            if(!syncData.startsWith("SYNC")) return;
+            if (!syncData.startsWith("SYNC")) return;
 
             let parts = syncData.split(',');
             
-            // ⭐ 1. 補上被遺忘的三大主推桿 UI 更新！
             document.getElementById('slider_master').value = parseFloat(parts[1]);
             document.getElementById('val_master').innerText = parseFloat(parts[1]).toFixed(2);
             
@@ -159,9 +160,8 @@
             document.getElementById('slider_call').value = parseFloat(parts[3]);
             document.getElementById('val_call').innerText = parseFloat(parts[3]).toFixed(2);
 
-            // 2. 更新 8 段 EQ
-            for(let i=0; i<8; i++) {
-                let val = parseFloat(parts[i+4]);
+            for (let i = 0; i < 8; i++) {
+                let val = parseFloat(parts[i + 4]);
                 document.getElementById(`slider_eq${i}`).value = val;
                 document.getElementById(`val_eq${i}`).innerText = val.toFixed(1) + " dB";
             }
@@ -170,74 +170,81 @@
         }
     }
 
-    // 4. 初次連線：需要使用者點擊觸發 (會彈出選擇視窗)
+    // 4. 初次連線：每次點擊都允許重新選擇裝置 (方便切換 MASTER 與 DEVICE)
     async function connectBLE() {
         try {
             document.getElementById('ble-status').innerText = "🟡 請求藍牙權限中...";
             
-            if (!bleDevice) {
-                // 🌟 改用 namePrefix: 'E' 來過濾，只抓開頭是 E 的裝置
-                bleDevice = await navigator.bluetooth.requestDevice({
-                    filters: [{ namePrefix: 'E' }], 
-                    optionalServices: ['000000ff-0000-1000-8000-00805f9b34fb']   // 宣告我們要用這個服務大門
-                });
-                bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
-            }
+            // ⭐ 同時支援名稱開頭 'E' 與服務 UUID 過濾，防止改名後找不到
+            bleDevice = await navigator.bluetooth.requestDevice({
+                filters: [
+                    { namePrefix: 'E' },
+                    { services: [SERVICE_UUID] }
+                ], 
+                optionalServices: [SERVICE_UUID]
+            });
+            bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
             
-            // 取得權限後，進入底層連線
             await connectGATT();
             
         } catch(error) {
-            // ⭐ 加上把 error 印出來，如果再失敗，你可以在電腦按 F12 看看具體報什麼錯
             console.error("藍牙連線錯誤:", error); 
-            showOffline("🔴 權限被拒絕或連線失敗");
+            showOffline("🔴 權限被拒絕或取消選擇");
         }
     }
+
+    // 處理來自 ESP32 的推播 (支援 STATUS 與 SCENE 格式)
     function handleNotifications(event) {
-        // 解析收到的 byte array 變成字串
         let value = new TextDecoder().decode(event.target.value);
         console.log("📥 收到 ESP32 推播:", value);
 
-        // 如果字串開頭是 "SCENE,"，代表是場景切換情報
-        if (value.startsWith("SCENE,")) {
-            let scene_mode = parseInt(value.split(",")[1]);
+        // ⭐ 修正：同時支援 C 語言發出的 "STATUS,scene,rms,vad" 與 "SCENE,scene"
+        if (value.startsWith("STATUS,") || value.startsWith("SCENE,")) {
+            let parts = value.split(",");
+            let scene_mode = parseInt(parts[1]);
+            let extraInfo = "";
+            if (parts.length >= 4) {
+                let rms = parseFloat(parts[2]).toFixed(0);
+                let vad = parseInt(parts[3]) === 1 ? "🗣️人聲" : "🔇無語音";
+                extraInfo = ` | RMS: ${rms} (${vad})`;
+            }
+
             let sceneBox = document.getElementById("scene_display");
             
             if (scene_mode === 0) {
-                sceneBox.innerText = "🟢 智能場景：安靜環境 (通透)";
-                sceneBox.style.background = "#27ae60"; // 質感綠
+                sceneBox.innerText = "🟢 智能場景：安靜環境 (通透)" + extraInfo;
+                sceneBox.style.background = "#27ae60";
             } 
             else if (scene_mode === 1) {
-                sceneBox.innerText = "🟡 智能場景：吵雜環境 (強效降噪)";
-                sceneBox.style.background = "#f39c12"; // 質感黃
+                sceneBox.innerText = "🟡 智能場景：吵雜環境 (強效降噪)" + extraInfo;
+                sceneBox.style.background = "#f39c12";
             } 
             else if (scene_mode === 2) {
-                sceneBox.innerText = "🔴 智能場景：對話中 (語音強化)";
-                sceneBox.style.background = "#e74c3c"; // 質感紅
+                sceneBox.innerText = "🔴 智能場景：對話中 (語音強化)" + extraInfo;
+                sceneBox.style.background = "#e74c3c";
             }
         }
         else {
             printToConsole(value);
-            // 如果正在自動收集，順手抄進 .txt 的字串裡
             if (isCollectingLog) {
                 collectedLogData += value + "\n";
             }
         }
     }
-    // ⭐ 5. 背景靜默重連專用 (不會彈出視窗，不會觸發 Security Error)
+
+    // 5. 建立底層 GATT 連線
     async function connectGATT() {
         document.getElementById('ble-status').innerText = "🟡 建立底層 GATT 連線...";
         try {
             const server = await bleDevice.gatt.connect(); 
-            
-            // ⭐ 關鍵修正：必須與 optionalServices 使用完全相同的 128-bit 字串！
-            const service = await server.getPrimaryService('000000ff-0000-1000-8000-00805f9b34fb');
-            txCharacteristic = await service.getCharacteristic('0000ff01-0000-1000-8000-00805f9b34fb');
+            const service = await server.getPrimaryService(SERVICE_UUID);
+            txCharacteristic = await service.getCharacteristic(CHAR_UUID);
             await txCharacteristic.startNotifications();
             txCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
-            // ==========================================
+
+            let devName = bleDevice.name ? ` (${bleDevice.name})` : "";
             document.getElementById('ble-status').className = 'status-bar status-online';
-            document.getElementById('ble-status').innerText = '🟢 藍牙已連線';
+            document.getElementById('ble-status').innerText = '🟢 藍牙已連線' + devName;
             document.getElementById('connectBtn').style.display = 'none';
             document.getElementById('tuning').style.opacity = '1';
             document.getElementById('tuning').style.pointerEvents = 'auto';
@@ -254,7 +261,7 @@
         console.warn("💔 BLE 已斷線，準備啟動背景靜默重連...");
         txCharacteristic = null;
         isSending = false;
-        pendingCommands = {}; // 清空所有未送出的指令
+        pendingCommands = {}; 
 
         document.getElementById('ble-status').className = 'status-bar status-offline';
         document.getElementById('ble-status').innerText = '🔴 藍牙已斷線，3秒後背景自動重連...';
@@ -262,7 +269,7 @@
         document.getElementById('tuning').style.pointerEvents = 'none';
         document.getElementById('scene_display').innerText = "🧠 智能場景：等待偵測...";
         document.getElementById('scene_display').style.background = "#95a5a6";
-        // ⭐ 3 秒後，呼叫 connectGATT() 而不是 connectBLE()
+
         setTimeout(() => {
             if (bleDevice && !bleDevice.gatt.connected) {
                 console.log("🔄 嘗試背景靜默重連...");
@@ -281,6 +288,7 @@
         document.getElementById('tuning').style.opacity = '0.4';
         document.getElementById('tuning').style.pointerEvents = 'none';
     }
+
     // 8. 恢復原廠預設值
     async function loadDefault() {
         if (!txCharacteristic) {
@@ -290,14 +298,9 @@
 
         if (confirm("⚠️ 確定要恢復原廠預設參數嗎？這會重置所有音量與 EQ 設定。")) {
             try {
-                // 1. 發送指令給 MCU
                 await txCharacteristic.writeValue(new TextEncoder().encode("load_default"));
                 console.log("🔄 發送恢復預設指令...");
-
-                // 2. 稍微等待 MCU 處理完計算 (DSP 重算濾波器需要一點點時間)
                 await new Promise(r => setTimeout(r, 500));
-
-                // 3. 重新同步一次，讓 UI 滑桿更新到預設值
                 await syncFromESP32();
                 alert("✅ 已成功恢復原廠預設值！");
             } catch (e) {
@@ -306,6 +309,7 @@
             }
         }
     }
+
     function sendTuningCmd(cmdName, value, displayId) {
         document.getElementById(displayId).innerText = parseFloat(value).toFixed(2);
         pendingCommands[cmdName] = `${cmdName} ${value}`;
@@ -317,7 +321,6 @@
         try {
             let cmd = "save_all";
             await txCharacteristic.writeValue(new TextEncoder().encode(cmd));
-            
             console.log("📤 送出指令:", cmd); 
             alert("💾 參數已成功永久寫入耳機！");
         } catch (e) { 
@@ -326,9 +329,7 @@
         }
     }
 
-    // ==========================================
-    // ⭐ 新增：發送藍牙名稱修改指令
-    // ==========================================
+    // 9. 發送藍牙名稱修改指令 (修正為等號格式)
     async function sendNameCmd(type) {
         if (!txCharacteristic) {
             alert("❌ 錯誤：藍牙未連線");
@@ -343,7 +344,7 @@
                 alert("請輸入傳統藍牙名稱！");
                 return;
             }
-            cmd = "set_bt_name " + newName;
+            cmd = "set_bt_name=" + newName; // ⭐ 修正為等號對齊 C 語言
             document.getElementById("btNameInput").value = "";
             
         } else if (type === 'ble') {
@@ -352,7 +353,7 @@
                 alert("請輸入 BLE 名稱！");
                 return;
             }
-            cmd = "set_ble_name " + newName;
+            cmd = "set_ble_name=" + newName; // ⭐ 修正為等號對齊 C 語言
             document.getElementById("bleNameInput").value = "";
         }
 
@@ -367,23 +368,18 @@
         }
     }
 
-    // ==========================================
-    // ⭐ 新增：Console 輸入與一鍵下載功能
-    // ==========================================
-
-    // 寫入文字到 Console 螢幕上
+    // 10. Console 輸入與一鍵下載功能
     function printToConsole(text, isInput = false) {
         let out = document.getElementById("consoleOutput");
         if (!out) return;
         let prefix = isInput ? ">> " : "";
         out.value += prefix + text + "\n";
-        out.scrollTop = out.scrollHeight; // 自動捲動到最底
+        out.scrollTop = out.scrollHeight;
     }
 
-    // 讓輸入框支援按 Enter 鍵發送
     document.addEventListener("DOMContentLoaded", function() {
         let inputField = document.getElementById("cmdInput");
-        if(inputField) {
+        if (inputField) {
             inputField.addEventListener("keypress", function(event) {
                 if (event.key === "Enter") {
                     event.preventDefault();
@@ -393,13 +389,11 @@
         }
     });
 
-    // 發送指令給 ESP32 (包含解鎖彩蛋)
     async function sendConsoleCmd() {
         let inputField = document.getElementById("cmdInput");
         let cmd = inputField.value.trim();
         if (!cmd) return;
         
-        // ⭐ 攔截彩蛋指令：解鎖匯出按鈕
         if (cmd === "RD_DEBUG") {
             document.getElementById("rdExportBtn").style.display = "block";
             printToConsole("🔓 已解鎖 R&D 進階除錯模式！", true);
@@ -422,7 +416,6 @@
         }
     }
 
-    // 產生並下載 .txt 檔案
     function downloadTxtFile(text, filename) {
         let blob = new Blob([text], { type: "text/plain;charset=utf-8" });
         let url = URL.createObjectURL(blob);
@@ -435,7 +428,6 @@
         URL.revokeObjectURL(url);
     }
 
-    // 啟動自動連發與收集流程
     async function startLogCollection() {
         if (!txCharacteristic) return;
         
@@ -450,7 +442,6 @@
         collectedLogData += "   Generated: " + now.toLocaleString() + "\n";
         collectedLogData += "=========================================\n\n";
 
-        // 📝 這裡是你想要一口氣執行的指令清單！
         let commandsToRun = [
             "statusfft",
             "read_limit_bigsound",
@@ -466,7 +457,6 @@
             
             try {
                 await txCharacteristic.writeValue(new TextEncoder().encode(cmd));
-                // 給 ESP32 一點時間處理並推播回來 (500ms)
                 await new Promise(r => setTimeout(r, 500)); 
             } catch (e) {
                 collectedLogData += `[Error sending command: ${e}]\n`;
@@ -484,7 +474,6 @@
             btn.disabled = false;
         }, 3000);
     }
-
 </script>
 </body>
 </html>
