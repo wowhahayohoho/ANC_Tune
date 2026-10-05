@@ -176,10 +176,10 @@
             document.getElementById('ble-status').innerText = "🟡 請求藍牙權限中...";
             
             if (!bleDevice) {
-                // ⭐ 關鍵修正：移除 acceptAllDevices，改用 filters 精準尋找設備名稱
+                // ⭐ 修正：改用 namePrefix 開頭過濾，或者放寬為支援服務 UUID
                 bleDevice = await navigator.bluetooth.requestDevice({
-                    filters: [{ name: 'ESP' }], // 告訴手機只准找叫 "Tune" 的設備
-                    optionalServices: ['000000ff-0000-1000-8000-00805f9b34fb']   // 宣告我們要用這個服務大門
+                    filters: [{ namePrefix: 'ESP' }], // 抓取所有以 ESP 開頭的 ESP32 裝置
+                    optionalServices: ['000000ff-0000-1000-8000-00805f9b34fb']
                 });
                 bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
             }
