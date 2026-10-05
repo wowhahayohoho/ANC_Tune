@@ -177,9 +177,9 @@
             
             // ⭐ 同時支援名稱開頭 'E' 與服務 UUID 過濾，防止改名後找不到
             bleDevice = await navigator.bluetooth.requestDevice({
-                acceptAllDevices: true,  // ⭐ 先用這行讓手機顯示附近所有藍牙裝置，確保手機藍牙功能正常
-                optionalServices: [SERVICE_UUID]
-            });
+				acceptAllDevices: true,
+				optionalServices: [SERVICE_UUID]
+			});
             bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
             
             await connectGATT();
