@@ -682,11 +682,20 @@
         let cleanCmd = cmd.trim();
         printToConsole(cleanCmd, true);
         try {
-            // ⭐ 每次發送前，強制確保 handleNotifications 掛載在 txCharacteristic 上 (專治 Bluefy 掉監聽 Bug)
-            txCharacteristic.removeEventListener('characteristicvaluechanged', handleNotifications);
-            txCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
-
             await txCharacteristic.writeValue(new TextEncoder().encode(cleanCmd));
+
+            // ⭐ 雙重保底：送出指令 120ms 後，主動呼叫 readValue() 把 g_last_ble_msg (如 DIAG) 讀回來！
+            setTimeout(async function() {
+                try {
+                    const val = await txCharacteristic.readValue();
+                    const str = new TextDecoder().decode(val).trim();
+                    if (str.length > 0 && !str.startsWith("SYNC")) {
+                        processSingleLine(str);
+                    }
+                } catch (readErr) {
+                    console.warn("讀取略過:", readErr);
+                }
+            }, 120);
         } catch (e) {
             printToConsole("❌ 發送失敗：" + e);
             let fb = document.getElementById("diag_feedback");
