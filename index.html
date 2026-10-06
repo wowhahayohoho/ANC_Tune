@@ -278,29 +278,25 @@
     }
 
     function processSingleLine(value) {
-        // (1) 硬體自檢報告：攔截 DIAG,1,1,0,1,0,21,4032,44100 並直接顯示在小視窗！
+        // (1) 硬體自檢報告：攔截 DIAG, 並直接印在黑色 Console 小視窗
         let diagIdx = value.indexOf("DIAG,");
         if (diagIdx !== -1) {
             let diagStr = value.substring(diagIdx).trim();
             let p = diagStr.split(",");
-            let summary = "✅ [收到自檢回傳] " + diagStr;
             if (p.length >= 9) {
-                summary = 
+                let reportText = 
                     "🛠️ [硬體自檢報告] " + diagStr + "\n" +
-                    "• DAC(ES8311): " + (p[1] === '1' ? '🟢正常' : '🔴異常') + 
-                    " | ADC(ES7243E): " + (p[2] === '1' ? '🟢正常' : '🔴異常') + "\n" +
-                    "• I2C重試: " + p[3] + "次" +
-                    " | 耳機孔: " + (p[4] === '1' ? '🎧已插入' : '⚪未插入') + 
+                    "  • DAC(ES8311): " + (p[1] === '1' ? '🟢正常' : '🔴異常') + 
+                    " | ADC(ES7243E): " + (p[2] === '1' ? '🟢正常' : '🔴異常') + 
+                    " | I2C重試: " + p[3] + "次\n" +
+                    "  • 耳機孔: " + (p[4] === '1' ? '🎧已插入' : '⚪未插入') + 
                     " | SLAVE: " + (p[5] === '1' ? '📡在線' : '⚪單機') + "\n" +
-                    "• SRAM: " + p[6] + " KB | PSRAM: " + p[7] + " KB | 取樣率: " + p[8] + " Hz";
+                    "  • SRAM: " + p[6] + "KB | PSRAM: " + p[7] + "KB | 取樣率: " + p[8] + "Hz";
+                
+                printToConsole(reportText);
+                if (isCollectingLog) collectedLogData += reportText + "\n";
+                return;
             }
-            let diagBox = document.getElementById("diag_status");
-            if (diagBox) {
-                diagBox.innerText = summary;
-            }
-            printToConsole(summary);
-            if (isCollectingLog) collectedLogData += summary + "\n";
-            return;
         }
 
         // (2) 場景與環境狀態推播 (STATUS,scene,rms,vad)
@@ -502,15 +498,15 @@
 
     // ⭐ 關鍵：自動在結尾加上 \n 換行符號！
     async function sendQuickCmd(cmd) {
-        if (!txCharacteristic) { alert("請先連線藍牙！"); return; }
-        try {
-            let payload = cmd.trim() + "\n";
-            console.log("📤 [發送藍牙指令]:", JSON.stringify(payload));
-            await txCharacteristic.writeValue(new TextEncoder().encode(payload));
-        } catch (e) {
-            console.error("❌ 發送失敗:", e);
-        }
-    }
+		if (!txCharacteristic) { alert("請先連線藍牙！"); return; }
+		try {
+			let payload = cmd.trim() + "\n";
+			console.log("📤 發送指令:", JSON.stringify(payload));
+			await txCharacteristic.writeValue(new TextEncoder().encode(payload));
+		} catch (e) {
+			console.error("❌ 發送失敗:", e);
+		}
+	}
 
     function startAudiometryUI() {
         document.getElementById("aud_log").innerHTML = "";
