@@ -90,13 +90,12 @@
     let audAskTimer = null;
     let audNextToneTimer = null;
 
-    // 追蹤當前測聽進度
     let curAudBand = 1;
     let curAudFreq = "250";
     let curAudRound = 1;
     let curAudDb = 30;
 
-    // ⭐ 0. 確保 DOM 載入完成後，自動在網頁注入「硬體自檢」與「8頻段聽力驗配」UI 面板
+    // ⭐ 0. 動態注入 UI 面板（額外加入手動解析按鈕，雙重保險）
     function injectSelfTestUI() {
         if (document.getElementById('dg_dac')) return;
 
@@ -113,9 +112,10 @@
             '\x3chr style="border:0; border-top:1px solid #ddd; margin: 20px 0;"\x3e' +
             '\x3ch4 style="margin-top:0;"\x3e🛠️ 硬體與雙機健康自檢 (Self-Test)\x3c/h4\x3e' +
             '\x3cdiv class="control-group"\x3e' +
-                '\x3cdiv style="display: flex; gap: 8px;"\x3e' +
-                    '\x3cbutton onclick="sendQuickCmd(\'ble_diag\')" style="background-color: #2980b9; padding: 10px; font-size: 14px; margin-bottom: 6px;"\x3e🔍 執行硬體自檢\x3c/button\x3e' +
-                    '\x3cbutton onclick="sendQuickCmd(\'web_tone 1000 65\')" style="background-color: #16a085; padding: 10px; font-size: 14px; margin-bottom: 6px;"\x3e🔊 1kHz 喇叭測試\x3c/button\x3e' +
+                '\x3cdiv style="display: flex; gap: 8px; flex-wrap: wrap;"\x3e' +
+                    '\x3cbutton onclick="sendQuickCmd(\'ble_diag\')" style="background-color: #2980b9; padding: 10px; font-size: 14px; margin-bottom: 6px; flex: 1;"\x3e🔍 執行硬體自檢\x3c/button\x3e' +
+                    '\x3cbutton onclick="forceReadDiagManually()" style="background-color: #8e44ad; padding: 10px; font-size: 14px; margin-bottom: 6px;"\x3e🔄 手動讀取更新\x3c/button\x3e' +
+                    '\x3cbutton onclick="sendQuickCmd(\'web_tone 1000 65\')" style="background-color: #16a085; padding: 10px; font-size: 14px; margin-bottom: 6px; width: 100%;"\x3e🔊 1kHz 喇叭測試\x3c/button\x3e' +
                 '\x3c/div\x3e' +
                 '\x3cdiv class="diag-grid"\x3e' +
                     '\x3cdiv class="diag-item"\x3e\x3cspan\x3eES8311 (DAC)\x3c/span\x3e\x3cspan id="dg_dac"\x3e--\x3c/span\x3e\x3c/div\x3e' +
@@ -133,10 +133,10 @@
             '\x3cdiv class="control-group"\x3e' +
                 '\x3cdiv style="display: flex; gap: 8px;"\x3e' +
                     '\x3cbutton onclick="startAudiometryUI()" style="background-color: #27ae60; padding: 10px; font-size: 14px; margin-bottom: 6px;"\x3e▶️ 開始自動測聽\x3c/button\x3e' +
-                    '\x3cbutton onclick="sendQuickCmd(\'aud_stop\')" style="background-color: #c0392b; padding: 10px; font-size: 14px; margin-bottom: 6px;"\x3e⏹️️ 停止測聽\x3c/button\x3e' +
+                    '\x3cbutton onclick="sendQuickCmd(\'aud_stop\')" style="background-color: #c0392b; padding: 10px; font-size: 14px; margin-bottom: 6px;"\x3e⏹ 停止測聽\x3c/button\x3e' +
                 '\x3c/div\x3e' +
                 '\x3cdiv id="aud_status" style="background: #fff; padding: 12px; border-radius: 8px; font-size: 13px; text-align: center; border: 2px solid #ddd; margin-bottom: 10px; line-height: 1.5; transition: all 0.2s;"\x3e' +
-                    '點擊「▶️️ 開始自動測聽」後，此處會顯示即時播音與詢問提示' +
+                    '點擊「▶ 開始自動測聽」後，此處會顯示即時播音與詢問提示' +
                 '\x3c/div\x3e' +
                 '\x3cbutton onclick="userClickedHeard()" style="background-color: #f39c12; color: #fff; padding: 18px; font-size: 18px; margin-bottom: 4px; width: 100%; box-shadow: 0 4px 10px rgba(243,156,18,0.3);"\x3e' +
                     '👂 我聽到了！ (有聽到嘟聲請點此)' +
@@ -154,7 +154,6 @@
             document.body.insertAdjacentHTML('beforeend', uiHtml);
         }
     }
-    // 立即嘗試注入，若 DOM 尚未準備好則在 DOMContentLoaded 時再次確保注入
     injectSelfTestUI();
     document.addEventListener("DOMContentLoaded", injectSelfTestUI);
 
@@ -183,7 +182,7 @@
         });
     }
 
-    // 2. 定時器：發送緩衝區滑桿指令
+    // 2. 指令發送緩衝區
     setInterval(async function() {
         if (isSending || Object.keys(pendingCommands).length === 0 || !txCharacteristic) return;
         if (!bleDevice || !bleDevice.gatt.connected) return; 
@@ -195,9 +194,7 @@
 
         try {
             await txCharacteristic.writeValue(new TextEncoder().encode(cmd));
-            console.log("✅ 成功同步指令:", cmd);
         } catch (e) {
-            console.error("❌ 發送失敗:", e);
             if (e.name !== 'NetworkError' && !e.message.includes('GATT Error Unknown')) {
                 pendingCommands[key] = cmd; 
             } else {
@@ -208,36 +205,7 @@
         }
     }, 300);
 
-    // 3. 同步 ESP32 目前數值 (僅在初次連線與恢復預設時呼叫一次)
-    async function syncFromESP32() {
-        try {
-            const value = await txCharacteristic.readValue();
-            const syncData = new TextDecoder().decode(value).trim();
-            console.log("📥 收到設備狀態:", syncData);
-
-            if (!syncData.startsWith("SYNC")) return;
-
-            let parts = syncData.split(',');
-            document.getElementById('slider_master').value = parseFloat(parts[1]);
-            document.getElementById('val_master').innerText = parseFloat(parts[1]).toFixed(2);
-            
-            document.getElementById('slider_sidetone').value = parseFloat(parts[2]);
-            document.getElementById('val_sidetone').innerText = parseFloat(parts[2]).toFixed(2);
-            
-            document.getElementById('slider_call').value = parseFloat(parts[3]);
-            document.getElementById('val_call').innerText = parseFloat(parts[3]).toFixed(2);
-
-            for (let i = 0; i !== 8; i++) {
-                let val = parseFloat(parts[i + 4]);
-                document.getElementById('slider_eq' + i).value = val;
-                document.getElementById('val_eq' + i).innerText = val.toFixed(1) + " dB";
-            }
-        } catch(e) {
-            console.error("同步失敗", e);
-        }
-    }
-
-    // 4. 初次連線
+    // 3. 連線初始化
     async function connectBLE() {
         try {
             document.getElementById('ble-status').innerText = "🟡 請求藍牙權限中...";
@@ -255,39 +223,39 @@
         }
     }
 
-    // ⭐ 輔助函式：顯示「正在播放測試音 -> 0.6秒後詢問是否有聽到」的雙階段動態 UI
-    function showPlayAndAskUI(bandNum, freqStr, roundStr, dbStr) {
-        let box = document.getElementById("aud_status");
-        if (!box) return;
+    // 4. GATT 連線建立與 Notification 監聽掛載
+    async function connectGATT() {
+        document.getElementById('ble-status').innerText = "🟡 建立底層 GATT 連線...";
+        try {
+            const server = await bleDevice.gatt.connect();
+            const service = await server.getPrimaryService('000000ff-0000-1000-8000-00805f9b34fb');
+            txCharacteristic = await service.getCharacteristic('0000ff01-0000-1000-8000-00805f9b34fb');
 
-        if (audAskTimer) clearTimeout(audAskTimer);
-        if (audNextToneTimer) clearTimeout(audNextToneTimer);
+            // 確保先移除舊的監聽避免重複觸發
+            txCharacteristic.removeEventListener('characteristicvaluechanged', handleNotifications);
+            txCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
+            await txCharacteristic.startNotifications();
 
-        // 階段 1 (0 ~ 0.6秒)：亮藍色，提示正在播放測試聲音
-        box.style.background = "#d6eaf8";
-        box.style.borderColor = "#2980b9";
-        box.innerHTML = 
-            "🔊 \x3cb style='color:#1f618d; font-size:15px;'\x3e【正在播放測試聲音... 請仔細聽】\x3c/b\x3e\x3cbr\x3e" +
-            "頻段 (" + bandNum + "/8)：\x3cb\x3e" + freqStr + " Hz\x3c/b\x3e ｜ 第 " + roundStr + " 輪 ｜ 目前測試音量：\x3cb\x3e" + dbStr + " dB\x3c/b\x3e";
+            document.getElementById('ble-status').className = 'status-bar status-online';
+            document.getElementById('ble-status').innerText = '🟢 藍牙已連線 (' + (bleDevice.name || 'ESP32') + ')';
+            document.getElementById('connectBtn').style.display = 'none';
+            document.getElementById('tuning').style.opacity = '1';
+            document.getElementById('tuning').style.pointerEvents = 'auto';
 
-        // 階段 2 (0.6秒播完後)：變亮橘色，詢問受測者「有聽到嗎？」
-        audAskTimer = setTimeout(function() {
-            box.style.background = "#fdebd0";
-            box.style.borderColor = "#f39c12";
-            box.innerHTML = 
-                "❓ \x3cb style='color:#d35400; font-size:15px;'\x3e【剛剛有聽到「嘟」一聲測試音嗎？】\x3c/b\x3e\x3cbr\x3e" +
-                "👉 \x3cb style='color:#c0392b;'\x3e有聽到請立刻按下方橘色大按鈕！\x3c/b\x3e\x3cbr\x3e" +
-                "\x3cspan style='color:#7f8c8d; font-size:12px;'\x3e(若太小聲沒聽到請不用按，系統將自動調高音量重試)\x3c/span\x3e";
-        }, 600);
+            // 連線成功後自動跑一次自檢
+            setTimeout(function() { sendQuickCmd('ble_diag'); }, 500);
+        } catch (e) {
+            console.error("❌ GATT 失敗:", e);
+            showOffline("🔴 GATT 連線失敗，請手動重連");
+        }
     }
 
-    // ⭐ 5. 接收並解析 ESP32 推播的所有自檢、測聽互動與狀態訊息
+    // ⭐ 5. 核心接收器：處理所有來自 ESP32 的 BLE 通知
     function handleNotifications(event) {
-        // 先確保自檢面板已存在於 DOM 中
         if (!document.getElementById('dg_dac')) injectSelfTestUI();
 
         let rawChunk = new TextDecoder().decode(event.target.value);
-        console.log("📥 收到 ESP32 推播:", rawChunk);
+        console.log("📥 [BLE Notify 收到]:", rawChunk);
 
         let lines = rawChunk.split(/\r?\n/);
         for (let line of lines) {
@@ -298,8 +266,9 @@
         }
     }
 
+    // 解析單行訊息並更新對應 UI
     function processSingleLine(value) {
-        // (1) 硬體自檢報告：攔截 DIAG,1,1,0,1,0,21,4032,44100
+        // (1) 硬體自檢報告：DIAG,dac,adc,i2c_err,hp,slave,sram,psram,sr
         let diagIdx = value.indexOf("DIAG,");
         if (diagIdx !== -1) {
             let diagStr = value.substring(diagIdx).trim();
@@ -316,203 +285,79 @@
                     document.getElementById("dg_psram").innerText = p[7] + " KB";
                     document.getElementById("dg_sr").innerText    = p[8] + " Hz";
                 }
-                printToConsole("✅ [硬體自檢更新完成] " + diagStr);
-                if (isCollectingLog) collectedLogData += diagStr + "\n";
+                printToConsole("✅ [硬體自檢更新成功] " + diagStr);
                 return;
             }
         }
 
-        // (2) 場景與環境狀態推播 (STATUS,scene,rms,vad)
+        // (2) 其它訊息如 STATUS 或 測聽流程
         if (value.startsWith("STATUS,") || value.startsWith("SCENE,")) {
             let parts = value.split(",");
             let scene_mode = parseInt(parts[1]);
-            let extra = (parts[3] !== undefined) ? (' | 能量:' + parts[2] + (parts[3] === '1' ? ' | 🗣️說話中' : ' | 🔇無語音')) : '';
             let sceneBox = document.getElementById("scene_display");
-            
             if (sceneBox) {
-                if (scene_mode === 0) {
-                    sceneBox.innerText = "🟢 智能場景：安靜環境 (通透)" + extra;
-                    sceneBox.style.background = "#27ae60";
-                } else if (scene_mode === 1) {
-                    sceneBox.innerText = "🟡 智能場景：吵雜環境 (強效降噪)" + extra;
-                    sceneBox.style.background = "#f39c12";
-                } else if (scene_mode === 2) {
-                    sceneBox.innerText = "🔴 智能場景：對話中 (語音強化)" + extra;
-                    sceneBox.style.background = "#e74c3c";
-                }
+                if (scene_mode === 0) { sceneBox.innerText = "🟢 智能場景：安靜 (通透)"; sceneBox.style.background = "#27ae60"; }
+                else if (scene_mode === 1) { sceneBox.innerText = "🟡 智能場景：吵雜 (強效降噪)"; sceneBox.style.background = "#f39c12"; }
+                else if (scene_mode === 2) { sceneBox.innerText = "🔴 智能場景：對話中"; sceneBox.style.background = "#e74c3c"; }
             }
             return;
         }
-
-        // (3) 聽力自檢：視覺回饋狀態機
-        let box = document.getElementById("aud_status");
-
-        if (value === "TONE_OK") {
-            printToConsole("🔊 1kHz 喇叭測試純音播放完畢");
-            return;
-        }
-        if (value === "AUD_START") {
-            curAudBand = 1;
-            curAudFreq = "250";
-            curAudRound = 1;
-            curAudDb = 25;
-            if (box) {
-                box.style.background = "#e8f4fd";
-                box.style.borderColor = "#3498db";
-                box.innerHTML = "🎧 \x3cb style='color:#2980b9;'\x3e測聽準備開始！請戴好耳機並注意看此處提示...\x3c/b\x3e";
-            }
-            audNextToneTimer = setTimeout(function() {
-                showPlayAndAskUI(curAudBand, curAudFreq, curAudRound, curAudDb);
-            }, 1000);
-            return;
-        }
-        if (value.startsWith("AUD_STEP,")) {
-            let p = value.split(",");
-            curAudBand = parseInt(p[1]) + 1;
-            curAudFreq = p[2];
-            curAudRound = parseInt(p[3]);
-            curAudDb = parseInt(p[4]);
-
-            showPlayAndAskUI(curAudBand, curAudFreq, curAudRound, curAudDb);
-            return;
-        }
-        if (value.startsWith("AUD_HIT,")) {
-            if (audAskTimer) clearTimeout(audAskTimer);
-            if (audNextToneTimer) clearTimeout(audNextToneTimer);
-            let p = value.split(",");
-            if (box) {
-                box.style.background = "#d4efdf";
-                box.style.borderColor = "#27ae60";
-                box.innerHTML = "✅ \x3cb style='color:#1e8449; font-size:14px;'\x3e【已收到反應！】記錄 " + p[1] + " Hz (" + p[2] + " dB)\x3c/b\x3e\x3cbr\x3e正在準備播放下一聲測試音...";
-            }
-            curAudRound++;
-            curAudDb = Math.max(10, parseInt(p[2]) - 10);
-            audNextToneTimer = setTimeout(function() {
-                showPlayAndAskUI(curAudBand, curAudFreq, curAudRound, curAudDb);
-            }, 1200);
-            return;
-        }
-        if (value.startsWith("AUD_MISS,")) {
-            if (audAskTimer) clearTimeout(audAskTimer);
-            if (audNextToneTimer) clearTimeout(audNextToneTimer);
-            let p = value.split(",");
-            curAudDb = parseInt(p[2]);
-            if (box) {
-                box.style.background = "#ebdef0";
-                box.style.borderColor = "#8e44ad";
-                box.innerHTML = "🔇 \x3cb style='color:#6c3483;'\x3e【未偵測到按鍵 (太小聲沒聽到)】\x3c/b\x3e\x3cbr\x3e系統自動加大音量至 \x3cb\x3e" + p[2] + " dB\x3c/b\x3e 即將播放...";
-            }
-            audNextToneTimer = setTimeout(function() {
-                showPlayAndAskUI(curAudBand, curAudFreq, curAudRound, curAudDb);
-            }, 1000);
-            return;
-        }
-        if (value.startsWith("AUD_BAND,")) {
-            let p = value.split(",");
-            let logDiv = document.getElementById("aud_log");
-            if (logDiv) {
-                logDiv.innerHTML += "\x3cdiv style='padding:2px 0; border-bottom:1px dashed #eee;'\x3e🎯 \x3cb\x3e" + p[2] + " Hz\x3c/b\x3e 最終聽閾: \x3cb\x3e" + p[3] + " dB\x3c/b\x3e ➔ 自動補償 EQ: \x3cb style='color:#27ae60;'\x3e+" + p[4] + " dB\x3c/b\x3e\x3c/div\x3e";
-                logDiv.scrollTop = logDiv.scrollHeight;
-            }
-            curAudBand = parseInt(p[1]) + 2;
-            curAudRound = 1;
-            return;
-        }
-        if (value.startsWith("AUD_ERR,")) {
-            let p = value.split(",");
-            let logDiv = document.getElementById("aud_log");
-            if (logDiv) {
-                logDiv.innerHTML += '\x3cdiv style="color:#e74c3c; padding:2px 0;"\x3e⚠️ \x3cb\x3e' + p[2] + ' Hz\x3c/b\x3e 測試波動過大，維持原設定\x3c/div\x3e';
-                logDiv.scrollTop = logDiv.scrollHeight;
-            }
-            return;
-        }
-        if (value === "AUD_DONE") {
-            if (audAskTimer) clearTimeout(audAskTimer);
-            if (audNextToneTimer) clearTimeout(audNextToneTimer);
-            if (box) {
-                box.style.background = "#27ae60";
-                box.style.borderColor = "#1e8449";
-                box.innerHTML = "🎉 \x3cb style='color:#fff; font-size:15px;'\x3e【全部 8 頻段測聽完成！】\x3cbr\x3e專屬 EQ 已自動套用並同步至上方滑桿\x3c/b\x3e";
-            }
-            syncFromESP32();
-            setTimeout(function() {
-                alert("🎉 聽力檢測全部完成！\n\n系統已根據您的聽力結果自動調整 8 段 EQ 滑桿，您可以試聽看看，滿意後點擊「💾 永久儲存當前參數至耳機」即可！");
-            }, 300);
-            return;
-        }
-        if (value === "AUD_STOP") {
-            if (audAskTimer) clearTimeout(audAskTimer);
-            if (audNextToneTimer) clearTimeout(audNextToneTimer);
-            if (box) {
-                box.style.background = "#fadbd8";
-                box.style.borderColor = "#e74c3c";
-                box.innerHTML = "⏹️ \x3cb style='color:#c0392b;'\x3e測聽已手動停止\x3c/b\x3e";
-            }
-            return;
-        }
-
-        // (4) 其他一般訊息印到黑色 Console
-        printToConsole(value);
-        if (isCollectingLog) {
-            collectedLogData += value + "\n";
-        }
-    }
-
-    // ⭐ 當受測者點擊「👂 我聽到了！」大按鈕時：顯示收到反饋 -> 1.2秒後自動推進至「播放下一聲 & 詢問有聽到嗎」UI
-    function userClickedHeard() {
-        if (audAskTimer) clearTimeout(audAskTimer);
-        if (audNextToneTimer) clearTimeout(audNextToneTimer);
 
         let box = document.getElementById("aud_status");
-        if (box) {
+        if (value === "AUD_START" && box) {
+            box.style.background = "#e8f4fd";
+            box.innerHTML = "🎧 測聽準備開始！請注意聽...";
+            return;
+        }
+        if (value.startsWith("AUD_STEP,") && box) {
+            let p = value.split(",");
+            box.style.background = "#d6eaf8";
+            box.innerHTML = "🔊 正在播放：" + p[2] + " Hz (第 " + p[3] + " 輪, " + p[4] + " dB)";
+            return;
+        }
+        if (value.startsWith("AUD_HIT,") && box) {
+            let p = value.split(",");
             box.style.background = "#d4efdf";
-            box.style.borderColor = "#27ae60";
-            box.innerHTML = "✅ \x3cb style='color:#1e8449; font-size:15px;'\x3e【已收到您的按鈕反饋！】\x3c/b\x3e\x3cbr\x3e正在記錄聽力門檻，準備播放下一段測試音...";
+            box.innerHTML = "✅ 已收到反應！記錄 " + p[1] + " Hz (" + p[2] + " dB)";
+            return;
         }
-        sendQuickCmd("aud_heard");
+        if (value === "AUD_DONE" && box) {
+            box.style.background = "#27ae60";
+            box.innerHTML = "🎉 全部測聽完成！EQ 已自動套用";
+            alert("🎉 聽力檢測全部完成！");
+            return;
+        }
 
-        // 1.2 秒後自動切換到下一輪的「🔊 正在播放測試聲音...」與「❓ 剛剛有聽到嗎？」
-        curAudRound++;
-        audNextToneTimer = setTimeout(function() {
-            showPlayAndAskUI(curAudBand, curAudFreq, curAudRound, curAudDb);
-        }, 1200);
+        printToConsole(value);
     }
 
-    // 6. 背景靜默重連與連線初始化
-    async function connectGATT() {
-        document.getElementById('ble-status').innerText = "🟡 建立底層 GATT 連線...";
+    // ⭐ 6. 萬能手動讀取按鈕（解決 Notify 沒通時，手動用 readValue 抓一次資料的保底方案）
+    async function forceReadDiagManually() {
+        if (!txCharacteristic) { alert("請先連線藍牙！"); return; }
         try {
-            const server = await bleDevice.gatt.connect();
-            const service = await server.getPrimaryService('000000ff-0000-1000-8000-00805f9b34fb');
-            txCharacteristic = await service.getCharacteristic('0000ff01-0000-1000-8000-00805f9b34fb');
-
-            await txCharacteristic.startNotifications();
-            txCharacteristic.removeEventListener('characteristicvaluechanged', handleNotifications);
-            txCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
-            
-            // 初次連線同步一次基準值
-            await syncFromESP32();
-
-            document.getElementById('ble-status').className = 'status-bar status-online';
-            document.getElementById('ble-status').innerText = '🟢 藍牙已連線 (' + (bleDevice.name || 'ESP32') + ')';
-            document.getElementById('connectBtn').style.display = 'none';
-            document.getElementById('tuning').style.opacity = '1';
-            document.getElementById('tuning').style.pointerEvents = 'auto';
-
-            // 連上後拉開 800ms 間距再發送 ble_diag，避免與剛才的 syncFromESP32 撞車
-            setTimeout(function() { sendQuickCmd('ble_diag'); }, 800);
+            // 先發送一次 ble_diag 指令讓 ESP32 準備好數據
+            await txCharacteristic.writeValue(new TextEncoder().encode("ble_diag\n"));
+            // 等待 150ms 讓韌體執行完畢，然後主動讀取當前 Characteristic 數值
+            setTimeout(async () => {
+                try {
+                    const val = await txCharacteristic.readValue();
+                    const str = new TextDecoder().decode(val).trim();
+                    console.log("🔄 [手動讀取結果]:", str);
+                    processSingleLine(str);
+                    alert("✅ 手動更新成功：" + str);
+                } catch (readErr) {
+                    alert("⚠️ 讀取成功但無回傳值，請確認 ESP32 是否有將 DIAG 寫入藍牙緩衝區。");
+                }
+            }, 150ms);
         } catch (e) {
-            console.error("❌ GATT 失敗:", e);
-            showOffline("🔴 GATT 連線失敗，請手動重連");
+            alert("❌ 發送失敗：" + e.message);
         }
     }
 
-    // ⭐ 乾淨版指令發送：不再附加 readValue()，徹底避免觸發 ESP32 READ_EVT 與 Stack Overflow
     async function sendQuickCmd(cmd) {
         if (!txCharacteristic) { alert("請先連線藍牙！"); return; }
         try {
-            await txCharacteristic.writeValue(new TextEncoder().encode(cmd));
+            await txCharacteristic.writeValue(new TextEncoder().encode(cmd + "\n"));
         } catch (e) {
             console.error("❌ 發送失敗:", e);
         }
@@ -520,40 +365,29 @@
 
     function startAudiometryUI() {
         document.getElementById("aud_log").innerHTML = "";
-        curAudBand = 1;
-        curAudFreq = "250";
-        curAudRound = 1;
-        curAudDb = 25;
-
         let box = document.getElementById("aud_status");
-        box.style.background = "#e8f4fd";
-        box.style.borderColor = "#3498db";
-        box.innerHTML = "⏳ \x3cb style='color:#2980b9;'\x3e正在啟動 8 頻段原位測聽，請戴好耳機...\x3c/b\x3e";
+        if (box) box.innerHTML = "⏳ 正在啟動 8 頻段原位測聽...";
         sendQuickCmd("aud_start");
+    }
 
-        if (audNextToneTimer) clearTimeout(audNextToneTimer);
-        audNextToneTimer = setTimeout(function() {
-            showPlayAndAskUI(curAudBand, curAudFreq, curAudRound, curAudDb);
-        }, 1200);
+    function userClickedHeard() {
+        let box = document.getElementById("aud_status");
+        if (box) box.innerHTML = "✅ 已送出反應，準備下一輪...";
+        sendQuickCmd("aud_heard");
     }
 
     function onDisconnected(event) {
         txCharacteristic = null;
         isSending = false;
         pendingCommands = {};
-
         document.getElementById('ble-status').className = 'status-bar status-offline';
-        document.getElementById('ble-status').innerText = '🔴 藍牙已斷線，3秒後背景自動重連...';
+        document.getElementById('ble-status').innerText = '🔴 藍牙已斷線，3秒後自動重連...';
         document.getElementById('tuning').style.opacity = '0.4';
         document.getElementById('tuning').style.pointerEvents = 'none';
-        document.getElementById('scene_display').innerText = "🧠 智能場景：等待偵測...";
-        document.getElementById('scene_display').style.background = "#95a5a6";
 
         setTimeout(function() {
             if (bleDevice && !bleDevice.gatt.connected) {
-                connectGATT().catch(function(e) {
-                    showOffline("🔴 背景重連失敗，請點擊按鈕手動連線");
-                });
+                connectGATT().catch(function(e) { showOffline("🔴 重連失敗"); });
             }
         }, 3000);
     }
@@ -566,59 +400,6 @@
         document.getElementById('tuning').style.pointerEvents = 'none';
     }
 
-    async function loadDefault() {
-        if (!txCharacteristic) { alert("請先連線藍牙！"); return; }
-        if (confirm("⚠️ 確定要恢復原廠預設參數嗎？這會重置所有音量與 EQ 設定。")) {
-            try {
-                await txCharacteristic.writeValue(new TextEncoder().encode("load_default"));
-                await new Promise(function(r) { setTimeout(r, 600); });
-                await syncFromESP32();
-                alert("✅ 已成功恢復原廠預設值！");
-            } catch (e) {
-                alert("恢復失敗，請重連");
-            }
-        }
-    }
-
-    function sendTuningCmd(cmdName, value, displayId) {
-        document.getElementById(displayId).innerText = parseFloat(value).toFixed(2);
-        pendingCommands[cmdName] = cmdName + " " + value;
-    }
-
-    async function saveToFlash() {
-        if (!txCharacteristic) return;
-        pendingCommands = {}; 
-        try {
-            await txCharacteristic.writeValue(new TextEncoder().encode("save_all"));
-            alert("💾 參數已成功永久寫入耳機！");
-        } catch (e) { 
-            alert("儲存失敗，請重連"); 
-        }
-    }
-
-    async function sendNameCmd(type) {
-        if (!txCharacteristic) { alert("❌ 錯誤：藍牙未連線"); return; }
-        let cmd = "";
-        if (type === 'bt') {
-            let newName = document.getElementById("btNameInput").value.trim();
-            if (newName === "") { alert("請輸入傳統藍牙名稱！"); return; }
-            cmd = "set_bt_name=" + newName;
-            document.getElementById("btNameInput").value = "";
-        } else if (type === 'ble') {
-            let newName = document.getElementById("bleNameInput").value.trim();
-            if (newName === "") { alert("請輸入 BLE 名稱！"); return; }
-            cmd = "set_ble_name=" + newName;
-            document.getElementById("bleNameInput").value = "";
-        }
-
-        try {
-            await txCharacteristic.writeValue(new TextEncoder().encode(cmd));
-            alert("✅ 指令已發送！\n" + cmd);
-        } catch (e) {
-            alert("發送失敗，請確認藍牙連線狀態");
-        }
-    }
-
     function printToConsole(text, isInput = false) {
         let out = document.getElementById("consoleOutput");
         if (!out) return;
@@ -627,97 +408,18 @@
         out.scrollTop = out.scrollHeight;
     }
 
-    document.addEventListener("DOMContentLoaded", function() {
-        let inputField = document.getElementById("cmdInput");
-        if (inputField) {
-            inputField.addEventListener("keypress", function(event) {
-                if (event.key === "Enter") {
-                    event.preventDefault();
-                    sendConsoleCmd();
-                }
-            });
-        }
-    });
-
     async function sendConsoleCmd() {
         let inputField = document.getElementById("cmdInput");
         let cmd = inputField.value.trim();
         if (!cmd) return;
-        
-        if (cmd === "RD_DEBUG") {
-            document.getElementById("rdExportBtn").style.display = "block";
-            printToConsole("🔓 已解鎖 R&D 進階除錯模式！", true);
-            inputField.value = "";
-            return;
-        }
-
-        printToConsole(cmd, true); 
-        inputField.value = "";     
+        printToConsole(cmd, true);
+        inputField.value = "";
         if (!txCharacteristic) { printToConsole("❌ 錯誤：藍牙未連線"); return; }
-
         try {
-            await txCharacteristic.writeValue(new TextEncoder().encode(cmd));
+            await txCharacteristic.writeValue(new TextEncoder().encode(cmd + "\n"));
         } catch (e) {
             printToConsole("❌ 發送失敗：" + e);
         }
-    }
-
-    function downloadTxtFile(text, filename) {
-        let blob = new Blob([text], { type: "text/plain;charset=utf-8" });
-        let url = URL.createObjectURL(blob);
-        let a = document.createElement("a");
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    }
-
-    async function startLogCollection() {
-        if (!txCharacteristic) return;
-        let btn = document.getElementById("rdExportBtn");
-        btn.innerText = "⏳ 正在與 ESP32 溝通收集 Log 中 (約需 3.5 秒)...";
-        btn.disabled = true;
-
-        isCollectingLog = true;
-        let now = new Date();
-        collectedLogData = "=========================================\n";
-        collectedLogData += "   Hearing Aid System R&D Report\n";
-        collectedLogData += "   Generated: " + now.toLocaleString() + "\n";
-        collectedLogData += "=========================================\n\n";
-
-        let commandsToRun = [
-            "ble_diag",
-            "statusfft",
-            "show_eq",
-            "read_limit_bigsound",
-            "read_gate",
-            "i2sset",
-            "status7243",
-            "status8311"
-        ];
-
-        for (let cmd of commandsToRun) {
-            collectedLogData += "\n\x3e\x3e Executing: " + cmd + "\n";
-            collectedLogData += "-----------------------------------------\n";
-            try {
-                await txCharacteristic.writeValue(new TextEncoder().encode(cmd));
-                await new Promise(function(r) { setTimeout(r, 450); }); 
-            } catch (e) {
-                collectedLogData += "[Error sending command: " + e + "]\n";
-            }
-        }
-
-        isCollectingLog = false;
-        btn.innerText = "✅ 收集完成！檔案已下載";
-        let timeStr = now.toISOString().replace(/[:T\-]/g, "").replace(/\..+/, "").replace(/\s/g, "_");
-        downloadTxtFile(collectedLogData, "RD_Report_" + timeStr + ".txt");
-
-        setTimeout(function() {
-            btn.innerText = "📥 一鍵收集並下載系統完整 Log (.txt)";
-            btn.disabled = false;
-        }, 3000);
     }
 </script>
 </body>
