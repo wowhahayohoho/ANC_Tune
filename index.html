@@ -102,7 +102,6 @@
     function injectSelfTestUI() {
         if (document.getElementById('aud_status')) return;
 
-        // 注入 8 個方框的 CSS 樣式
         const style = document.createElement('style');
         style.textContent = 
             '.diag-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }' +
@@ -116,7 +115,7 @@
 
         const wrapper = document.createElement('div');
 
-        // --- 區塊 1: 硬體自檢 (含即時 Feedback 橫幅與 8 個狀態方框) ---
+        // --- 區塊 1: 硬體自檢 (含 Bluefy 封包監控列 + 8 個方框) ---
         const title1 = document.createElement('h4');
         title1.textContent = '🛠️ 硬體與雙機健康自檢 (Self-Test)';
         title1.style.marginTop = '20px';
@@ -138,7 +137,7 @@
             if (fb) {
                 fb.style.background = '#fff3cd';
                 fb.style.color = '#856404';
-                fb.textContent = '⏳ 已發送 ble_diag 指令，等待 ESP32 回傳自檢數據...';
+                fb.textContent = '⏳ [TX] 已送出 ble_diag，等待 ESP32 回傳...';
             }
             sendQuickCmd('ble_diag');
         };
@@ -153,7 +152,7 @@
             if (fb) {
                 fb.style.background = '#d1ecf1';
                 fb.style.color = '#0c5460';
-                fb.textContent = '🔊 已發送 1kHz 測試音指令 (web_tone 1000 65)...';
+                fb.textContent = '🔊 [TX] 已送出 1kHz 測試音指令...';
             }
             sendQuickCmd('web_tone 1000 65');
         };
@@ -161,20 +160,20 @@
         btnRow1.appendChild(btnDiag);
         btnRow1.appendChild(btnTone);
 
-        // 即時 Feedback 狀態顯示列
+        // ⭐ 專為 iOS Bluefy 設計的「免 F12 原始封包/狀態 Feedback 顯示列」
         const diagFeedback = document.createElement('div');
         diagFeedback.id = 'diag_feedback';
-        diagFeedback.style.background = '#eef2f5';
-        diagFeedback.style.color = '#576574';
+        diagFeedback.style.background = '#1e272e';
+        diagFeedback.style.color = '#00d2d3';
+        diagFeedback.style.fontFamily = 'monospace';
         diagFeedback.style.padding = '8px 10px';
         diagFeedback.style.borderRadius = '6px';
         diagFeedback.style.fontSize = '12px';
-        diagFeedback.style.fontWeight = 'bold';
-        diagFeedback.style.textAlign = 'center';
         diagFeedback.style.marginBottom = '8px';
-        diagFeedback.textContent = '💡 點擊上方「🔍 執行硬體自檢」更新下方硬體狀態';
+        diagFeedback.style.wordBreak = 'break-all';
+        diagFeedback.textContent = '📡 [Bluefy 監控] 等待接收 BLE 封包...';
 
-        // 8 個硬體狀態方框
+        // 找回原本的 8 個方框
         const grid = document.createElement('div');
         grid.className = 'diag-grid';
         const boxConfigs = [
@@ -635,15 +634,27 @@
 
     // ⭐ 關鍵：自動在結尾加上 \n 換行符號！
     async function sendQuickCmd(cmd) {
-		if (!txCharacteristic) { alert("請先連線藍牙！"); return; }
-		try {
-			let cleanCmd = cmd.trim(); // 嚴格去除換行，100% 匹配 strcmp(line, "ble_diag") == 0
-			printToConsole(cleanCmd, true);
-			await txCharacteristic.writeValue(new TextEncoder().encode(cleanCmd));
-		} catch (e) {
-			printToConsole("❌ 發送失敗：" + e);
-		}
-	}
+        if (!txCharacteristic) { alert("請先連線藍牙！"); return; }
+        try {
+            let cleanCmd = cmd.trim();
+            printToConsole(cleanCmd, true);
+            const data = new TextEncoder().encode(cleanCmd);
+            if (txCharacteristic.writeValueWithoutResponse) {
+                await txCharacteristic.writeValueWithoutResponse(data);
+            } else {
+                await txCharacteristic.writeValue(data);
+            }
+        } catch (e) {
+            // 若 Characteristic 不支援 WithoutResponse，自動退回標準 writeValue
+            try {
+                await txCharacteristic.writeValue(new TextEncoder().encode(cmd.trim()));
+            } catch (err2) {
+                printToConsole("❌ 發送失敗：" + err2);
+                let fb = document.getElementById("diag_feedback");
+                if (fb) fb.textContent = "❌ 發送失敗: " + err2.message;
+            }
+        }
+    }
 
     function startAudiometryUI() {
         document.getElementById("aud_log").innerHTML = "";
