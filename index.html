@@ -398,12 +398,37 @@
         }, 600);
     }
 
+    // 用來拼接被 iOS Bluefy 切斷的封包緩衝區
+    let bleRxBuffer = "";
+    let bleRxTimer = null;
+
     // ⭐ 5. 接收並解析 ESP32 推播的所有自檢、測聽互動與狀態訊息
     function handleNotifications(event) {
-        let rawChunk = new TextDecoder().decode(event.target.value);
-        console.log("📥 收到 ESP32 推播:", rawChunk);
+        let chunk = new TextDecoder().decode(event.target.value);
+        bleRxBuffer += chunk;
 
-        let lines = rawChunk.split(/\r?\n/);
+        // 只要收到非 STATUS 的封包，立刻顯示在監控列上
+        if (!bleRxBuffer.includes("STATUS,") && !bleRxBuffer.includes("SCENE,")) {
+            let fb = document.getElementById("diag_feedback");
+            if (fb) {
+                fb.style.background = "#d1ecf1";
+                fb.style.color = "#0c5460";
+                fb.textContent = "📥 [收到封包]: " + bleRxBuffer.trim();
+            }
+        }
+
+        if (bleRxTimer) clearTimeout(bleRxTimer);
+        if (bleRxBuffer.includes("\n") || (bleRxBuffer.includes("DIAG,") && bleRxBuffer.split(",").length >= 9)) {
+            flushBleRxBuffer();
+        } else {
+            bleRxTimer = setTimeout(flushBleRxBuffer, 80);
+        }
+    }
+
+    function flushBleRxBuffer() {
+        let fullText = bleRxBuffer;
+        bleRxBuffer = "";
+        let lines = fullText.split(/\r?\n/);
         for (let line of lines) {
             let cleanLine = line.trim();
             if (cleanLine.length > 0) {
@@ -413,28 +438,60 @@
     }
 
     function processSingleLine(value) {
-		// (1) 攔截 DIAG,1,1,0,1,0,21,4032,44100 並直接印在底下黑色 Console 小視窗
-		let diagIdx = value.indexOf("DIAG,");
-		if (diagIdx !== -1) {
-			let diagStr = value.substring(diagIdx).trim();
-			let p = diagStr.split(",");
-			if (p.length >= 9) {
-				let reportText = 
-					"🛠️️ [硬體自檢報告] " + diagStr + "\n" +
-					"  • DAC(ES8311): " + (p[1] === '1' ? '🟢正常' : '🔴異常') + 
-					" | ADC(ES7243E): " + (p[2] === '1' ? '🟢正常' : '🔴異常') + 
-					" | I2C重試: " + p[3] + "次\n" +
-					"  • 耳機孔: " + (p[4] === '1' ? '🎧已插入' : '⚪未插入') + 
-					" | SLAVE: " + (p[5] === '1' ? '📡在線' : '⚪單機') + "\n" +
-					"  • SRAM: " + p[6] + "KB | PSRAM: " + p[7] + "KB | 取樣率: " + p[8] + "Hz";
-				
-				printToConsole(reportText);
-				if (isCollectingLog) collectedLogData += reportText + "\n";
-			} else {
-				printToConsole("✅ [收到自檢] " + diagStr);
-			}
-			return;
-		}
+        // (1) 攔截 DIAG,1,1,0,1,0,22,4031,44100 並同時更新 8 個方框、橫幅與底下 Console！
+        let diagIdx = value.indexOf("DIAG,");
+        if (diagIdx !== -1) {
+            let diagStr = value.substring(diagIdx).trim();
+            let p = diagStr.split(",");
+
+            // 這個輔助函式負責把「待檢測」換成真正的綠燈/紅燈與數值！
+            const setBox = function(id, text, isOk) {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.textContent = text;
+                if (isOk === true) {
+                    el.className = 'ok-tag';
+                    el.style.color = '#27ae60';
+                } else if (isOk === false) {
+                    el.className = 'err-tag';
+                    el.style.color = '#e74c3c';
+                } else {
+                    el.className = '';
+                    el.style.color = '#2c3e50';
+                    el.style.fontWeight = 'bold';
+                }
+            };
+
+            if (p.length > 1) setBox("dg_dac",   p[1] === '1' ? '🟢 正常' : '🔴 異常', p[1] === '1');
+            if (p.length > 2) setBox("dg_adc",   p[2] === '1' ? '🟢 正常' : '🔴 異常', p[2] === '1');
+            if (p.length > 3) setBox("dg_i2c",   p[3] + ' 次', p[3] === '0');
+            if (p.length > 4) setBox("dg_hp",    p[4] === '1' ? '🎧 已插入' : '⚪ 未插入', p[4] === '1');
+            if (p.length > 5) setBox("dg_slave", p[5] === '1' ? '📡 在線' : '⚪ 單機', p[5] === '1');
+            if (p.length > 6) setBox("dg_sram",  p[6] + ' KB', null);
+            if (p.length > 7) setBox("dg_psram", p[7] + ' KB', null);
+            if (p.length > 8) setBox("dg_sr",    p[8] + ' Hz', null);
+
+            // 更新黃色橫幅為綠色完成狀態
+            let fb = document.getElementById("diag_feedback");
+            if (fb) {
+                fb.style.background = "#d4efdf";
+                fb.style.color = "#1e8449";
+                fb.textContent = "✅ 自檢完成 (" + new Date().toLocaleTimeString() + ")：" + diagStr;
+            }
+
+            let reportText = 
+                "🛠 [硬體自檢報告] " + diagStr + "\n" +
+                "  • DAC(ES8311): " + (p[1] === '1' ? '🟢正常' : '🔴異常') + 
+                " | ADC(ES7243E): " + (p[2] === '1' ? '🟢正常' : '🔴異常') + 
+                " | I2C重試: " + (p[3] || '--') + "次\n" +
+                "  • 耳機孔: " + (p[4] === '1' ? '🎧已插入' : '⚪未插入') + 
+                " | SLAVE: " + (p[5] === '1' ? '📡在線' : '⚪單機') + "\n" +
+                "  • SRAM: " + (p[6] || '--') + "KB | PSRAM: " + (p[7] || '--') + "KB | 取樣率: " + (p[8] || '--') + "Hz";
+
+            printToConsole(reportText);
+            if (isCollectingLog) collectedLogData += reportText + "\n";
+            return;
+        }
 
         // (2) 場景與環境狀態推播 (STATUS,scene,rms,vad)
         if (value.startsWith("STATUS,") || value.startsWith("SCENE,")) {
