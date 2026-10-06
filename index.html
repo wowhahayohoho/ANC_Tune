@@ -333,26 +333,24 @@
 
     // ⭐ 6. 萬能手動讀取按鈕（解決 Notify 沒通時，手動用 readValue 抓一次資料的保底方案）
     async function forceReadDiagManually() {
-        if (!txCharacteristic) { alert("請先連線藍牙！"); return; }
-        try {
-            // 先發送一次 ble_diag 指令讓 ESP32 準備好數據
-            await txCharacteristic.writeValue(new TextEncoder().encode("ble_diag\n"));
-            // 等待 150ms 讓韌體執行完畢，然後主動讀取當前 Characteristic 數值
-            setTimeout(async () => {
-                try {
-                    const val = await txCharacteristic.readValue();
-                    const str = new TextDecoder().decode(val).trim();
-                    console.log("🔄 [手動讀取結果]:", str);
-                    processSingleLine(str);
-                    alert("✅ 手動更新成功：" + str);
-                } catch (readErr) {
-                    alert("⚠️ 讀取成功但無回傳值，請確認 ESP32 是否有將 DIAG 寫入藍牙緩衝區。");
-                }
-            }, 150ms);
-        } catch (e) {
-            alert("❌ 發送失敗：" + e.message);
-        }
-    }
+		if (!txCharacteristic) { alert("請先連線藍牙！"); return; }
+		try {
+			await txCharacteristic.writeValue(new TextEncoder().encode("ble_diag\n"));
+			setTimeout(async () => {
+				try {
+					const val = await txCharacteristic.readValue();
+					const str = new TextDecoder().decode(val).trim();
+					console.log("🔄 [手動讀取結果]:", str);
+					processSingleLine(str);
+					alert("✅ 手動更新成功：" + str);
+				} catch (readErr) {
+					alert("⚠️ 讀取成功但無回傳值，請確認 ESP32 是否有將 DIAG 寫入藍牙緩衝區。");
+				}
+			}, 150);
+		} catch (e) {
+			alert("❌ 發送失敗：" + e.message);
+		}
+	}
 
     async function sendQuickCmd(cmd) {
         if (!txCharacteristic) { alert("請先連線藍牙！"); return; }
