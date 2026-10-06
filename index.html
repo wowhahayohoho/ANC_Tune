@@ -87,8 +87,9 @@
     let isSending = false;
     let isCollectingLog = false;
     let collectedLogData = "";
+    let audAskTimer = null;
 
-    // ⭐ 0. 自動注入「硬體自檢」與「聽力驗配」UI 面板 (使用 \x3c 與 \x3e 防止聊天視窗吃字)
+    // ⭐ 0. 自動在網頁注入「硬體自檢」與「8頻段聽力驗配」UI 面板
     (function injectSelfTestUI() {
         const style = document.createElement('style');
         style.textContent = `
@@ -127,13 +128,13 @@
                         '\x3cbutton onclick="startAudiometryUI()" style="background-color: #27ae60; padding: 10px; font-size: 14px; margin-bottom: 6px;"\x3e▶️ 開始自動測聽\x3c/button\x3e' +
                         '\x3cbutton onclick="sendQuickCmd(\'aud_stop\')" style="background-color: #c0392b; padding: 10px; font-size: 14px; margin-bottom: 6px;"\x3e⏹️ 停止測聽\x3c/button\x3e' +
                     '\x3c/div\x3e' +
-                    '\x3cdiv id="aud_status" style="background: #fff; padding: 10px; border-radius: 6px; font-size: 13px; text-align: center; border: 1px solid #ddd; margin-bottom: 8px;"\x3e' +
-                        '點擊「開始自動測聽」後，聽到耳機純音請立即按下方大按鈕' +
+                    '\x3cdiv id="aud_status" style="background: #fff; padding: 12px; border-radius: 8px; font-size: 13px; text-align: center; border: 2px solid #ddd; margin-bottom: 10px; line-height: 1.5; transition: all 0.2s;"\x3e' +
+                        '點擊「▶️ 開始自動測聽」後，此處會顯示即時播音與詢問提示' +
                     '\x3c/div\x3e' +
-                    '\x3cbutton onclick="sendQuickCmd(\'aud_heard\')" style="background-color: #f39c12; color: #fff; padding: 18px; font-size: 18px; margin-bottom: 4px; box-shadow: 0 4px 10px rgba(243,156,18,0.3);"\x3e' +
-                        '👂 我聽到了！ (點此反應)' +
+                    '\x3cbutton onclick="userClickedHeard()" style="background-color: #f39c12; color: #fff; padding: 18px; font-size: 18px; margin-bottom: 4px; box-shadow: 0 4px 10px rgba(243,156,18,0.3);"\x3e' +
+                        '👂 我聽到了！ (有聽到嘟聲請點此)' +
                     '\x3c/button\x3e' +
-                    '\x3cdiv id="aud_log" style="font-size: 12px; color: #2c3e50; margin-top: 6px; max-height: 120px; overflow-y: auto;"\x3e\x3c/div\x3e' +
+                    '\x3cdiv id="aud_log" style="font-size: 12px; color: #2c3e50; margin-top: 8px; max-height: 130px; overflow-y: auto;"\x3e\x3c/div\x3e' +
                 '\x3c/div\x3e';
             defaultBtn.insertAdjacentHTML('afterend', uiHtml);
         }
@@ -162,7 +163,7 @@
         };
     });
 
-    // 2. 定時器：發送緩衝區指令
+    // 2. 定時器：發送緩衝區滑桿指令
     setInterval(async function() {
         if (isSending || Object.keys(pendingCommands).length === 0 || !txCharacteristic) return;
         if (!bleDevice || !bleDevice.gatt.connected) return; 
@@ -234,16 +235,16 @@
         }
     }
 
-    // ⭐ 5. 接收並解析 ESP32 推播的所有自檢與狀態訊息
+    // ⭐ 5. 接收並解析 ESP32 推播的所有自檢、測聽互動與狀態訊息
     function handleNotifications(event) {
         let value = new TextDecoder().decode(event.target.value).trim();
         console.log("📥 收到 ESP32 推播:", value);
 
-        // (1) 修正：對齊 my_project_3.c 的 STATUS,scene,rms,vad
+        // (1) 場景與環境狀態推播 (STATUS,scene,rms,vad)
         if (value.startsWith("STATUS,") || value.startsWith("SCENE,")) {
             let parts = value.split(",");
             let scene_mode = parseInt(parts[1]);
-            let extra = (parts.length === 4) ? (' | 能量:' + parts[2] + (parts[3] === '1' ? ' | 🗣️說話中' : ' | 🔇無語音')) : '';
+            let extra = (parts[3] !== undefined) ? (' | 能量:' + parts[2] + (parts[3] === '1' ? ' | 🗣️說話中' : ' | 🔇無語音')) : '';
             let sceneBox = document.getElementById("scene_display");
             
             if (scene_mode === 0) {
@@ -259,7 +260,7 @@
             return;
         }
 
-        // (2) 解析硬體自檢報告：DIAG,dac,adc,i2c_err,hp,slave,sram,psram,sr
+        // (2) 硬體自檢報告：DIAG,dac,adc,i2c_err,hp,slave,sram,psram,sr
         if (value.startsWith("DIAG,")) {
             let p = value.split(",");
             document.getElementById("dg_dac").innerHTML   = (p[1] === '1') ? '\x3cspan class="ok-tag"\x3e🟢 正常\x3c/span\x3e' : '\x3cspan class="err-tag"\x3e🔴 異常\x3c/span\x3e';
@@ -275,42 +276,93 @@
             return;
         }
 
-        // (3) 解析聽力自檢與純音測試回傳
+        // (3) 聽力自檢：4 階段視覺回饋 (播音中 -> 詢問中 -> 收到反應/自動加音量 -> 完成彈窗)
+        let box = document.getElementById("aud_status");
+
         if (value === "TONE_OK") {
             printToConsole("🔊 1kHz 喇叭測試純音播放完畢");
             return;
         }
         if (value === "AUD_START") {
-            document.getElementById("aud_status").innerHTML = "🎧 \x3cb\x3e測聽進行中：聽到耳機純音請立即按下方橘色大按鈕！\x3c/b\x3e";
+            box.style.background = "#e8f4fd";
+            box.style.borderColor = "#3498db";
+            box.innerHTML = "🎧 \x3cb style='color:#2980b9;'\x3e測聽準備開始！請戴好耳機並注意看此處提示...\x3c/b\x3e";
             return;
         }
         if (value.startsWith("AUD_STEP,")) {
             let p = value.split(",");
-            document.getElementById("aud_status").innerHTML = 
-                "🎵 正在測試 \x3cb\x3e" + p[2] + " Hz\x3c/b\x3e (第 " + p[3] + "/5 輪) — 當前音量：\x3cb\x3e" + p[4] + " dB HL\x3c/b\x3e";
+            let bandNum = parseInt(p[1]) + 1;
+            let freqStr = p[2];
+            let roundStr = p[3];
+            let dbStr = p[4];
+            let nextDb = parseInt(dbStr) + 5;
+
+            if (audAskTimer) clearTimeout(audAskTimer);
+
+            // 階段 1 (0 ~ 0.5秒)：亮藍色，明確提示「正在播放測試音」
+            box.style.background = "#d6eaf8";
+            box.style.borderColor = "#2980b9";
+            box.innerHTML = 
+                "🔊 \x3cb style='color:#1f618d; font-size:15px;'\x3e【正在播放測試音... 請仔細聽】\x3c/b\x3e\x3cbr\x3e" +
+                "頻段 (" + bandNum + "/8)：\x3cb\x3e" + freqStr + " Hz\x3c/b\x3e ｜ 第 " + roundStr + "/5 輪 ｜ 目前音量：\x3cb\x3e" + dbStr + " dB\x3c/b\x3e";
+
+            // 階段 2 (0.5秒播完後)：變亮橘色，詢問受測者「剛剛有聽到嗎？」
+            audAskTimer = setTimeout(function() {
+                box.style.background = "#fdebd0";
+                box.style.borderColor = "#f39c12";
+                box.innerHTML = 
+                    "❓ \x3cb style='color:#d35400; font-size:15px;'\x3e【剛剛有聽到「嘟」一聲嗎？】\x3c/b\x3e\x3cbr\x3e" +
+                    "👉 \x3cb style='color:#c0392b;'\x3e有聽到請立刻按下方大按鈕！\x3c/b\x3e\x3cbr\x3e" +
+                    "\x3cspan style='color:#7f8c8d; font-size:12px;'\x3e(若太小聲沒聽到請不用按，系統將自動調高至 " + nextDb + " dB 重試)\x3c/span\x3e";
+            }, 500);
+            return;
+        }
+        if (value.startsWith("AUD_HIT,")) {
+            if (audAskTimer) clearTimeout(audAskTimer);
+            let p = value.split(",");
+            box.style.background = "#d4efdf";
+            box.style.borderColor = "#27ae60";
+            box.innerHTML = "✅ \x3cb style='color:#1e8449; font-size:14px;'\x3e【已收到反應！】記錄 " + p[1] + " Hz (" + p[2] + " dB)\x3c/b\x3e\x3cbr\x3e正在準備下一輪測試音...";
+            return;
+        }
+        if (value.startsWith("AUD_MISS,")) {
+            if (audAskTimer) clearTimeout(audAskTimer);
+            let p = value.split(",");
+            box.style.background = "#ebdef0";
+            box.style.borderColor = "#8e44ad";
+            box.innerHTML = "🔇 \x3cb style='color:#6c3483;'\x3e【未偵測到按鍵 (太小聲沒聽到)】\x3c/b\x3e\x3cbr\x3e系統自動加大音量至 \x3cb\x3e" + p[2] + " dB\x3c/b\x3e 即將播放...";
             return;
         }
         if (value.startsWith("AUD_BAND,")) {
             let p = value.split(",");
             let logDiv = document.getElementById("aud_log");
-            logDiv.innerHTML += "\x3cdiv\x3e✅ \x3cb\x3e" + p[2] + " Hz\x3c/b\x3e 聽閾判定: \x3cb\x3e" + p[3] + " dB\x3c/b\x3e ➔ 自動補償 EQ: \x3cb\x3e+" + p[4] + " dB\x3c/b\x3e\x3c/div\x3e";
+            logDiv.innerHTML += "\x3cdiv style='padding:2px 0; border-bottom:1px dashed #eee;'\x3e🎯 \x3cb\x3e" + p[2] + " Hz\x3c/b\x3e 最終聽閾: \x3cb\x3e" + p[3] + " dB\x3c/b\x3e ➔ 自動補償 EQ: \x3cb style='color:#27ae60;'\x3e+" + p[4] + " dB\x3c/b\x3e\x3c/div\x3e";
             logDiv.scrollTop = logDiv.scrollHeight;
             return;
         }
         if (value.startsWith("AUD_ERR,")) {
             let p = value.split(",");
             let logDiv = document.getElementById("aud_log");
-            logDiv.innerHTML += '\x3cdiv style="color:#e74c3c;"\x3e⚠️ \x3cb\x3e' + p[2] + ' Hz\x3c/b\x3e 測試波動過大，維持原設定\x3c/div\x3e';
+            logDiv.innerHTML += '\x3cdiv style="color:#e74c3c; padding:2px 0;"\x3e⚠️ \x3cb\x3e' + p[2] + ' Hz\x3c/b\x3e 測試波動過大，維持原設定\x3c/div\x3e';
             logDiv.scrollTop = logDiv.scrollHeight;
             return;
         }
         if (value === "AUD_DONE") {
-            document.getElementById("aud_status").innerHTML = "🎉 \x3cb\x3e8 頻段測聽驗配完成！專屬 EQ 已套用並同步至滑桿\x3c/b\x3e";
+            if (audAskTimer) clearTimeout(audAskTimer);
+            box.style.background = "#27ae60";
+            box.style.borderColor = "#1e8449";
+            box.innerHTML = "🎉 \x3cb style='color:#fff; font-size:15px;'\x3e【全部 8 頻段測聽完成！】\x3cbr\x3e專屬 EQ 已自動套用並同步至上方滑桿\x3c/b\x3e";
             syncFromESP32();
+            setTimeout(function() {
+                alert("🎉 聽力檢測全部完成！\n\n系統已根據您的聽力結果自動調整 8 段 EQ 滑桿，您可以試聽看看，滿意後點擊「💾 永久儲存當前參數至耳機」即可！");
+            }, 300);
             return;
         }
         if (value === "AUD_STOP") {
-            document.getElementById("aud_status").innerHTML = "⏹️ 測聽已手動停止";
+            if (audAskTimer) clearTimeout(audAskTimer);
+            box.style.background = "#fadbd8";
+            box.style.borderColor = "#e74c3c";
+            box.innerHTML = "⏹️ \x3cb style='color:#c0392b;'\x3e測聽已手動停止\x3c/b\x3e";
             return;
         }
 
@@ -319,6 +371,18 @@
         if (isCollectingLog) {
             collectedLogData += value + "\n";
         }
+    }
+
+    // 當受測者點擊「👂 我聽到了！」大按鈕時，網頁立即給予綠色視覺回饋並發送指令
+    function userClickedHeard() {
+        if (audAskTimer) clearTimeout(audAskTimer);
+        let box = document.getElementById("aud_status");
+        if (box) {
+            box.style.background = "#d4efdf";
+            box.style.borderColor = "#27ae60";
+            box.innerHTML = "✅ \x3cb style='color:#1e8449; font-size:15px;'\x3e【已收到您的按鈕反應！】\x3c/b\x3e\x3cbr\x3e正在記錄聽力門檻，請稍候下一輪測試音...";
+        }
+        sendQuickCmd("aud_heard");
     }
 
     // 6. 背景靜默重連與連線初始化
@@ -358,7 +422,10 @@
 
     function startAudiometryUI() {
         document.getElementById("aud_log").innerHTML = "";
-        document.getElementById("aud_status").innerHTML = "⏳ 正在啟動 8 頻段原位測聽...";
+        let box = document.getElementById("aud_status");
+        box.style.background = "#e8f4fd";
+        box.style.borderColor = "#3498db";
+        box.innerHTML = "⏳ \x3cb style='color:#2980b9;'\x3e正在啟動 8 頻段原位測聽，請戴好耳機...\x3c/b\x3e";
         sendQuickCmd("aud_start");
     }
 
@@ -421,7 +488,6 @@
         }
     }
 
-    // ⭐ 修正：補上等號對齊 my_project_3.c 的 set_bt_name= 與 set_ble_name=
     async function sendNameCmd(type) {
         if (!txCharacteristic) { alert("❌ 錯誤：藍牙未連線"); return; }
         let cmd = "";
