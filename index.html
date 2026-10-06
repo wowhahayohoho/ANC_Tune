@@ -98,45 +98,120 @@
     const eqFreqList = ["250", "500", "1000", "2000", "3000", "4000", "6000", "8000"];
 
     // ⭐ 0. 自動在網頁注入「硬體自檢(小視窗顯示版)」與「8頻段聽力驗配」UI 面板
+    
     function injectSelfTestUI() {
-        if (document.getElementById('diag_status')) return;
+		if (document.getElementById('aud_status')) return;
 
-        const uiHtml = 
-            '\x3chr style="border:0; border-top:1px solid #ddd; margin: 20px 0;"\x3e' +
-            '\x3ch4 style="margin-top:0;"\x3e🛠️ 硬體與雙機健康自檢 (Self-Test)\x3c/h4\x3e' +
-            '\x3cdiv class="control-group"\x3e' +
-                '\x3cdiv style="display: flex; gap: 8px;"\x3e' +
-                    '\x3cbutton onclick="sendQuickCmd(\'ble_diag\')" style="background-color: #2980b9; padding: 10px; font-size: 14px; margin-bottom: 6px;"\x3e🔍 執行硬體自檢\x3c/button\x3e' +
-                    '\x3cbutton onclick="sendQuickCmd(\'web_tone 1000 65\')" style="background-color: #16a085; padding: 10px; font-size: 14px; margin-bottom: 6px;"\x3e🔊 1kHz 喇叭測試\x3c/button\x3e' +
-                '\x3c/div\x3e' +
-                '\x3cdiv id="diag_status" style="background: #1e1e1e; color: #00ff00; font-family: monospace; padding: 10px; border-radius: 6px; font-size: 12px; line-height: 1.6; white-space: pre-wrap;"\x3e' +
-                    '點擊「🔍 執行硬體自檢」後，回傳狀態將直接顯示於此小視窗...' +
-                '\x3c/div\x3e' +
-            '\x3c/div\x3e' +
-            '\x3chr style="border:0; border-top:1px solid #ddd; margin: 20px 0;"\x3e' +
-            '\x3ch4 style="margin-top:0;"\x3e🏥 原位聽力驗配自檢 (8頻段 5取3)\x3c/h4\x3e' +
-            '\x3cdiv class="control-group"\x3e' +
-                '\x3cdiv style="display: flex; gap: 8px;"\x3e' +
-                    '\x3cbutton onclick="startAudiometryUI()" style="background-color: #27ae60; padding: 10px; font-size: 14px; margin-bottom: 6px;"\x3e▶️ 開始自動測聽\x3c/button\x3e' +
-                    '\x3cbutton onclick="sendQuickCmd(\'aud_stop\')" style="background-color: #c0392b; padding: 10px; font-size: 14px; margin-bottom: 6px;"\x3e⏹ 停止測聽\x3c/button\x3e' +
-                '\x3c/div\x3e' +
-                '\x3cdiv id="aud_status" style="background: #fff; padding: 12px; border-radius: 8px; font-size: 13px; text-align: center; border: 2px solid #ddd; margin-bottom: 10px; line-height: 1.5; transition: all 0.2s;"\x3e' +
-                    '點擊「▶ 開始自動測聽」後，此處會顯示即時播音與詢問提示' +
-                '\x3c/div\x3e' +
-                '\x3cbutton onclick="userClickedHeard()" style="background-color: #f39c12; color: #fff; padding: 18px; font-size: 18px; margin-bottom: 4px; width: 100%; box-shadow: 0 4px 10px rgba(243,156,18,0.3);"\x3e' +
-                    '👂 我聽到了！ (有聽到嘟聲請點此)' +
-                '\x3c/button\x3e' +
-                '\x3cdiv id="aud_log" style="font-size: 12px; color: #2c3e50; margin-top: 8px; max-height: 130px; overflow-y: auto;"\x3e\x3c/div\x3e' +
-            '\x3c/div\x3e';
+		const defaultBtn = document.getElementById('defaultBtn');
+		if (!defaultBtn) return;
 
-        const defaultBtn = document.getElementById('defaultBtn');
-        const tuningDiv = document.getElementById('tuning');
-        if (defaultBtn) {
-            defaultBtn.insertAdjacentHTML('afterend', uiHtml);
-        } else if (tuningDiv) {
-            tuningDiv.insertAdjacentHTML('beforeend', uiHtml);
-        }
-    }
+		const wrapper = document.createElement('div');
+
+		// --- 區塊 1: 硬體自檢 (不放那 8 個 -- 格子，直接顯示在底下黑色小視窗) ---
+		const title1 = document.createElement('h4');
+		title1.textContent = '🛠️ 硬體與雙機健康自檢 (Self-Test)';
+		title1.style.marginTop = '20px';
+
+		const group1 = document.createElement('div');
+		group1.className = 'control-group';
+
+		const btnRow1 = document.createElement('div');
+		btnRow1.style.display = 'flex';
+		btnRow1.style.gap = '8px';
+
+		const btnDiag = document.createElement('button');
+		btnDiag.textContent = '🔍 執行硬體自檢';
+		btnDiag.style.backgroundColor = '#2980b9';
+		btnDiag.style.padding = '10px';
+		btnDiag.style.fontSize = '14px';
+		btnDiag.onclick = function() { sendQuickCmd('ble_diag'); };
+
+		const btnTone = document.createElement('button');
+		btnTone.textContent = '🔊 1kHz 喇叭測試';
+		btnTone.style.backgroundColor = '#16a085';
+		btnTone.style.padding = '10px';
+		btnTone.style.fontSize = '14px';
+		btnTone.onclick = function() { sendQuickCmd('web_tone 1000 65'); };
+
+		btnRow1.appendChild(btnDiag);
+		btnRow1.appendChild(btnTone);
+
+		const hint1 = document.createElement('div');
+		hint1.textContent = '💡 點擊後，自檢回傳結果將直接顯示於下方黑色 BLE Console 小視窗。';
+		hint1.style.fontSize = '12px';
+		hint1.style.color = '#7f8c8d';
+
+		group1.appendChild(btnRow1);
+		group1.appendChild(hint1);
+
+		// --- 區塊 2: 原位聽力驗配自檢 ---
+		const title2 = document.createElement('h4');
+		title2.textContent = '🏥 原位聽力驗配自檢 (8頻段 5取3)';
+		title2.style.marginTop = '20px';
+
+		const group2 = document.createElement('div');
+		group2.className = 'control-group';
+
+		const btnRow2 = document.createElement('div');
+		btnRow2.style.display = 'flex';
+		btnRow2.style.gap = '8px';
+
+		const btnAudStart = document.createElement('button');
+		btnAudStart.textContent = '▶️ 開始自動測聽';
+		btnAudStart.style.backgroundColor = '#27ae60';
+		btnAudStart.style.padding = '10px';
+		btnAudStart.style.fontSize = '14px';
+		btnAudStart.onclick = startAudiometryUI;
+
+		const btnAudStop = document.createElement('button');
+		btnAudStop.textContent = '⏹ 停止測聽';
+		btnAudStop.style.backgroundColor = '#c0392b';
+		btnAudStop.style.padding = '10px';
+		btnAudStop.style.fontSize = '14px';
+		btnAudStop.onclick = function() { sendQuickCmd('aud_stop'); };
+
+		btnRow2.appendChild(btnAudStart);
+		btnRow2.appendChild(btnAudStop);
+
+		const audStatus = document.createElement('div');
+		audStatus.id = 'aud_status';
+		audStatus.style.background = '#fff';
+		audStatus.style.padding = '12px';
+		audStatus.style.borderRadius = '8px';
+		audStatus.style.fontSize = '13px';
+		audStatus.style.textAlign = 'center';
+		audStatus.style.border = '2px solid #ddd';
+		audStatus.style.marginBottom = '10px';
+		audStatus.style.whiteSpace = 'pre-line';
+		audStatus.textContent = '點擊「開始自動測聽」後，此處會顯示即時播音與詢問提示';
+
+		const btnHeard = document.createElement('button');
+		btnHeard.textContent = '👂 我聽到了！ (有聽到嘟聲請點此)';
+		btnHeard.style.backgroundColor = '#f39c12';
+		btnHeard.style.padding = '18px';
+		btnHeard.style.fontSize = '18px';
+		btnHeard.onclick = userClickedHeard;
+
+		const audLog = document.createElement('div');
+		audLog.id = 'aud_log';
+		audLog.style.fontSize = '12px';
+		audLog.style.marginTop = '8px';
+		audLog.style.maxHeight = '130px';
+		audLog.style.overflowY = 'auto';
+		audLog.style.whiteSpace = 'pre-line';
+
+		group2.appendChild(btnRow2);
+		group2.appendChild(audStatus);
+		group2.appendChild(btnHeard);
+		group2.appendChild(audLog);
+
+		wrapper.appendChild(title1);
+		wrapper.appendChild(group1);
+		wrapper.appendChild(title2);
+		wrapper.appendChild(group2);
+
+		defaultBtn.parentNode.insertBefore(wrapper, defaultBtn.nextSibling);
+	}
     injectSelfTestUI();
     document.addEventListener("DOMContentLoaded", injectSelfTestUI);
 
@@ -160,7 +235,7 @@
             const slider = group.querySelector('#slider_eq' + idx);
             slider.oninput = function() {
                 document.getElementById('val_eq' + idx).innerText = parseFloat(this.value).toFixed(1) + ' dB';
-                pendingCommands['eq ' + idx] = 'eq ' + idx + ' ' + this.value + '\n';
+                pendingCommands['eq ' + idx] = 'eq ' + idx + ' ' + this.value;
             };
         });
     }
@@ -278,26 +353,28 @@
     }
 
     function processSingleLine(value) {
-        // (1) 硬體自檢報告：攔截 DIAG, 並直接印在黑色 Console 小視窗
-        let diagIdx = value.indexOf("DIAG,");
-        if (diagIdx !== -1) {
-            let diagStr = value.substring(diagIdx).trim();
-            let p = diagStr.split(",");
-            if (p.length >= 9) {
-                let reportText = 
-                    "🛠️ [硬體自檢報告] " + diagStr + "\n" +
-                    "  • DAC(ES8311): " + (p[1] === '1' ? '🟢正常' : '🔴異常') + 
-                    " | ADC(ES7243E): " + (p[2] === '1' ? '🟢正常' : '🔴異常') + 
-                    " | I2C重試: " + p[3] + "次\n" +
-                    "  • 耳機孔: " + (p[4] === '1' ? '🎧已插入' : '⚪未插入') + 
-                    " | SLAVE: " + (p[5] === '1' ? '📡在線' : '⚪單機') + "\n" +
-                    "  • SRAM: " + p[6] + "KB | PSRAM: " + p[7] + "KB | 取樣率: " + p[8] + "Hz";
-                
-                printToConsole(reportText);
-                if (isCollectingLog) collectedLogData += reportText + "\n";
-                return;
-            }
-        }
+		// (1) 攔截 DIAG,1,1,0,1,0,21,4032,44100 並直接印在底下黑色 Console 小視窗
+		let diagIdx = value.indexOf("DIAG,");
+		if (diagIdx !== -1) {
+			let diagStr = value.substring(diagIdx).trim();
+			let p = diagStr.split(",");
+			if (p.length >= 9) {
+				let reportText = 
+					"🛠️️ [硬體自檢報告] " + diagStr + "\n" +
+					"  • DAC(ES8311): " + (p[1] === '1' ? '🟢正常' : '🔴異常') + 
+					" | ADC(ES7243E): " + (p[2] === '1' ? '🟢正常' : '🔴異常') + 
+					" | I2C重試: " + p[3] + "次\n" +
+					"  • 耳機孔: " + (p[4] === '1' ? '🎧已插入' : '⚪未插入') + 
+					" | SLAVE: " + (p[5] === '1' ? '📡在線' : '⚪單機') + "\n" +
+					"  • SRAM: " + p[6] + "KB | PSRAM: " + p[7] + "KB | 取樣率: " + p[8] + "Hz";
+				
+				printToConsole(reportText);
+				if (isCollectingLog) collectedLogData += reportText + "\n";
+			} else {
+				printToConsole("✅ [收到自檢] " + diagStr);
+			}
+			return;
+		}
 
         // (2) 場景與環境狀態推播 (STATUS,scene,rms,vad)
         if (value.startsWith("STATUS,") || value.startsWith("SCENE,")) {
@@ -476,10 +553,9 @@
             const service = await server.getPrimaryService('000000ff-0000-1000-8000-00805f9b34fb');
             txCharacteristic = await service.getCharacteristic('0000ff01-0000-1000-8000-00805f9b34fb');
 
-            await txCharacteristic.startNotifications();
             txCharacteristic.removeEventListener('characteristicvaluechanged', handleNotifications);
-            txCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
-            
+			txCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
+			await txCharacteristic.startNotifications();
             await syncFromESP32();
 
             document.getElementById('ble-status').className = 'status-bar status-online';
@@ -500,11 +576,11 @@
     async function sendQuickCmd(cmd) {
 		if (!txCharacteristic) { alert("請先連線藍牙！"); return; }
 		try {
-			let payload = cmd.trim() + "\n";
-			console.log("📤 發送指令:", JSON.stringify(payload));
-			await txCharacteristic.writeValue(new TextEncoder().encode(payload));
+			let cleanCmd = cmd.trim(); // 嚴格去除換行，100% 匹配 strcmp(line, "ble_diag") == 0
+			printToConsole(cleanCmd, true);
+			await txCharacteristic.writeValue(new TextEncoder().encode(cleanCmd));
 		} catch (e) {
-			console.error("❌ 發送失敗:", e);
+			printToConsole("❌ 發送失敗：" + e);
 		}
 	}
 
@@ -560,13 +636,52 @@
         if (!txCharacteristic) { alert("請先連線藍牙！"); return; }
         if (confirm("⚠️ 確定要恢復原廠預設參數嗎？這會重置所有音量與 EQ 設定。")) {
             try {
-                await txCharacteristic.writeValue(new TextEncoder().encode("load_default\n"));
+                await txCharacteristic.writeValue(new TextEncoder().encode("load_default"));
                 await new Promise(function(r) { setTimeout(r, 600); });
                 await syncFromESP32();
                 alert("✅ 已成功恢復原廠預設值！");
             } catch (e) {
                 alert("恢復失敗，請重連");
             }
+        }
+    }
+
+    function sendTuningCmd(cmdName, value, displayId) {
+        document.getElementById(displayId).innerText = parseFloat(value).toFixed(2);
+        pendingCommands[cmdName] = cmdName + " " + value;
+    }
+
+    async function saveToFlash() {
+        if (!txCharacteristic) return;
+        pendingCommands = {}; 
+        try {
+            await txCharacteristic.writeValue(new TextEncoder().encode("save_all"));
+            alert("💾 參數已成功永久寫入耳機！");
+        } catch (e) { 
+            alert("儲存失敗，請重連"); 
+        }
+    }
+
+    async function sendNameCmd(type) {
+        if (!txCharacteristic) { alert("❌ 錯誤：藍牙未連線"); return; }
+        let cmd = "";
+        if (type === 'bt') {
+            let newName = document.getElementById("btNameInput").value.trim();
+            if (newName === "") { alert("請輸入傳統藍牙名稱！"); return; }
+            cmd = "set_bt_name=" + newName;
+            document.getElementById("btNameInput").value = "";
+        } else if (type === 'ble') {
+            let newName = document.getElementById("bleNameInput").value.trim();
+            if (newName === "") { alert("請輸入 BLE 名稱！"); return; }
+            cmd = "set_ble_name=" + newName;
+            document.getElementById("bleNameInput").value = "";
+        }
+
+        try {
+            await txCharacteristic.writeValue(new TextEncoder().encode(cmd));
+            alert("✅ 指令已發送！\n" + cmd);
+        } catch (e) {
+            alert("發送失敗，請確認藍牙連線狀態");
         }
     }
 
@@ -646,7 +761,8 @@
         if (!txCharacteristic) { printToConsole("❌ 錯誤：藍牙未連線"); return; }
 
         try {
-            await txCharacteristic.writeValue(new TextEncoder().encode(cmd + "\n"));
+            // 拿掉 + "\n"，直接送出乾淨的 cmd
+            await txCharacteristic.writeValue(new TextEncoder().encode(cmd));
         } catch (e) {
             printToConsole("❌ 發送失敗：" + e);
         }
