@@ -404,24 +404,24 @@
 
     // ⭐ 5. 接收並解析 ESP32 推播的所有自檢、測聽互動與狀態訊息
     function handleNotifications(event) {
-        let chunk = new TextDecoder().decode(event.target.value);
-        bleRxBuffer += chunk;
+        let rawChunk = new TextDecoder().decode(event.target.value);
 
-        // 只要收到非 STATUS 的封包，立刻顯示在監控列上
-        if (!bleRxBuffer.includes("STATUS,") && !bleRxBuffer.includes("SCENE,")) {
+        // ⭐ 只要不是 STATUS，第一時間無條件把收到的原始字串秀在橫幅上！
+        if (rawChunk.indexOf("STATUS") === -1 && rawChunk.indexOf("SCENE") === -1) {
             let fb = document.getElementById("diag_feedback");
             if (fb) {
-                fb.style.background = "#d1ecf1";
-                fb.style.color = "#0c5460";
-                fb.textContent = "📥 [收到封包]: " + bleRxBuffer.trim();
+                fb.style.background = "#d4efdf";
+                fb.style.color = "#1e8449";
+                fb.textContent = "📥 [收到回傳]: " + rawChunk;
             }
         }
 
-        if (bleRxTimer) clearTimeout(bleRxTimer);
-        if (bleRxBuffer.includes("\n") || (bleRxBuffer.includes("DIAG,") && bleRxBuffer.split(",").length >= 9)) {
-            flushBleRxBuffer();
-        } else {
-            bleRxTimer = setTimeout(flushBleRxBuffer, 80);
+        let lines = rawChunk.split(/\r?\n/);
+        for (let line of lines) {
+            let cleanLine = line.trim();
+            if (cleanLine.length > 0) {
+                processSingleLine(cleanLine);
+            }
         }
     }
 
@@ -438,7 +438,6 @@
     }
 
     function processSingleLine(value) {
-        // (1) 攔截 DIAG,1,1,0,1,0,22,4031,44100 並同時更新 8 個方框、橫幅與底下 Console！
         let diagIdx = value.indexOf("DIAG,");
         if (diagIdx !== -1) {
             let diagStr = value.substring(diagIdx).trim();
@@ -448,17 +447,8 @@
                 const el = document.getElementById(id);
                 if (!el) return;
                 el.textContent = text;
-                if (isOk === true) {
-                    el.className = 'ok-tag';
-                    el.style.color = '#27ae60';
-                } else if (isOk === false) {
-                    el.className = 'err-tag';
-                    el.style.color = '#e74c3c';
-                } else {
-                    el.className = '';
-                    el.style.color = '#2c3e50';
-                    el.style.fontWeight = 'bold';
-                }
+                el.style.color = (isOk === true) ? '#27ae60' : (isOk === false ? '#e74c3c' : '#2c3e50');
+                el.style.fontWeight = 'bold';
             };
 
             if (p.length > 1) setBox("dg_dac",   p[1] === '1' ? '🟢 正常' : '🔴 異常', p[1] === '1');
@@ -474,10 +464,10 @@
             if (fb) {
                 fb.style.background = "#d4efdf";
                 fb.style.color = "#1e8449";
-                fb.textContent = "✅ 自檢完成 (" + new Date().toLocaleTimeString() + ")：" + diagStr;
+                fb.textContent = "✅ 自檢完成：" + diagStr;
             }
 
-            printToConsole("🛠 [硬體自檢報告] " + diagStr);
+            printToConsole("🛠 [硬體自檢] " + diagStr);
             if (isCollectingLog) collectedLogData += diagStr + "\n";
             return;
         }
@@ -659,13 +649,12 @@
             const service = await server.getPrimaryService('000000ff-0000-1000-8000-00805f9b34fb');
             txCharacteristic = await service.getCharacteristic('0000ff01-0000-1000-8000-00805f9b34fb');
 
-            // 步驟 1：先讀取 SYNC 基準值 (同時完成韌體的「認證為手機網頁」)
-            await syncFromESP32();
-
-            // 步驟 2：等 readValue 完成後，再開啟 Notifications 並綁定監聽 (防止 Bluefy 監聽失效)
+            // 恢復最穩定原始順序：先開 Notify 綁定監聽
             await txCharacteristic.startNotifications();
             txCharacteristic.removeEventListener('characteristicvaluechanged', handleNotifications);
             txCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
+
+            await syncFromESP32();
 
             document.getElementById('ble-status').className = 'status-bar status-online';
             document.getElementById('ble-status').innerText = '🟢 藍牙已連線 (' + (bleDevice.name || 'ESP32') + ')';
@@ -673,38 +662,29 @@
             document.getElementById('tuning').style.opacity = '1';
             document.getElementById('tuning').style.pointerEvents = 'auto';
 
-            // 步驟 3：連線完成 1 秒後自動發送一次硬體自檢
-            setTimeout(function() { sendQuickCmd('ble_diag'); }, 1000);
+            // 把按鈕文字改為 V21，讓你一眼確認 Bluefy 有沒有讀到最新網頁！
+            let btns = document.getElementsByTagName('button');
+            for (let b of btns) {
+                if (b.textContent.includes('執行硬體自檢')) b.textContent = '🔍 執行硬體自檢 (V21)';
+            }
+
+            setTimeout(function() { sendQuickCmd('ble_diag'); }, 800);
         } catch (e) {
             console.error("❌ GATT 失敗:", e);
             showOffline("🔴 GATT 連線失敗，請手動重連");
         }
     }
 
-    // ⭐ 讓上面所有快捷按鈕 100% 走跟底下 Console 發送鈕一模一樣的 writeValue！
     async function sendQuickCmd(cmd) {
         if (!txCharacteristic) { alert("請先連線藍牙！"); return; }
         let cleanCmd = cmd.trim();
         printToConsole(cleanCmd, true);
         try {
-            await txCharacteristic.writeValue(new TextEncoder().encode(cleanCmd));
+            // ⭐ 每次發送前，強制確保 handleNotifications 掛載在 txCharacteristic 上 (專治 Bluefy 掉監聽 Bug)
+            txCharacteristic.removeEventListener('characteristicvaluechanged', handleNotifications);
+            txCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
 
-            // ⭐ 破案關鍵：因為 ESP32 是用事件 ID: 21 (set_attr_value) 把 DIAG 存在 Read 緩衝區，
-            // 所以送出 ble_diag 後等 150ms 主動呼叫 readValue() 把它讀出來！
-            if (cleanCmd === "ble_diag") {
-                setTimeout(async function() {
-                    try {
-                        const val = await txCharacteristic.readValue();
-                        const str = new TextDecoder().decode(val).trim();
-                        console.log("📥 [readValue 讀回 DIAG]:", str);
-                        if (str.length > 0) {
-                            processSingleLine(str);
-                        }
-                    } catch (readErr) {
-                        console.error("讀取 DIAG 失敗:", readErr);
-                    }
-                }, 150);
-            }
+            await txCharacteristic.writeValue(new TextEncoder().encode(cleanCmd));
         } catch (e) {
             printToConsole("❌ 發送失敗：" + e);
             let fb = document.getElementById("diag_feedback");
