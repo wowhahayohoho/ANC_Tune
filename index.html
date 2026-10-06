@@ -95,37 +95,22 @@
     let curAudFreq = "250";
     let curAudRound = 1;
     let curAudDb = 30;
+    const eqFreqList = ["250", "500", "1000", "2000", "3000", "4000", "6000", "8000"];
 
-    // ⭐ 0. 確保 DOM 載入完成後，自動在網頁注入「硬體自檢」與「8頻段聽力驗配」UI 面板
+    // ⭐ 0. 自動在網頁注入「硬體自檢(無--格子版)」與「8頻段聽力驗配」UI 面板
     function injectSelfTestUI() {
-        if (document.getElementById('dg_dac')) return;
-
-        const style = document.createElement('style');
-        style.textContent = `
-            .diag-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
-            .diag-item { background: #fff; border: 1px solid #e1e8ed; padding: 8px 10px; border-radius: 6px; font-size: 12px; display: flex; justify-content: space-between; align-items: center; }
-            .ok-tag { color: #27ae60; font-weight: bold; }
-            .err-tag { color: #e74c3c; font-weight: bold; }
-        `;
-        document.head.appendChild(style);
+        if (document.getElementById('diag_status')) return;
 
         const uiHtml = 
             '\x3chr style="border:0; border-top:1px solid #ddd; margin: 20px 0;"\x3e' +
             '\x3ch4 style="margin-top:0;"\x3e🛠️ 硬體與雙機健康自檢 (Self-Test)\x3c/h4\x3e' +
             '\x3cdiv class="control-group"\x3e' +
                 '\x3cdiv style="display: flex; gap: 8px;"\x3e' +
-                    '\x3cbutton onclick="sendQuickCmd('ble_diag\n')" style="background-color: #2980b9; padding: 10px; font-size: 14px; margin-bottom: 6px;"\x3e🔍 執行硬體自檢\x3c/button\x3e' +
+                    '\x3cbutton onclick="sendQuickCmd(\'ble_diag\')" style="background-color: #2980b9; padding: 10px; font-size: 14px; margin-bottom: 6px;"\x3e🔍 執行硬體自檢\x3c/button\x3e' +
                     '\x3cbutton onclick="sendQuickCmd(\'web_tone 1000 65\')" style="background-color: #16a085; padding: 10px; font-size: 14px; margin-bottom: 6px;"\x3e🔊 1kHz 喇叭測試\x3c/button\x3e' +
                 '\x3c/div\x3e' +
-                '\x3cdiv class="diag-grid"\x3e' +
-                    '\x3cdiv class="diag-item"\x3e\x3cspan\x3eES8311 (DAC)\x3c/span\x3e\x3cspan id="dg_dac"\x3e--\x3c/span\x3e\x3c/div\x3e' +
-                    '\x3cdiv class="diag-item"\x3e\x3cspan\x3eES7243E (ADC)\x3c/span\x3e\x3cspan id="dg_adc"\x3e--\x3c/span\x3e\x3c/div\x3e' +
-                    '\x3cdiv class="diag-item"\x3e\x3cspan\x3eI2C 重試次數\x3c/span\x3e\x3cspan id="dg_i2c"\x3e--\x3c/span\x3e\x3c/div\x3e' +
-                    '\x3cdiv class="diag-item"\x3e\x3cspan\x3e耳機孔狀態\x3c/span\x3e\x3cspan id="dg_hp"\x3e--\x3c/span\x3e\x3c/div\x3e' +
-                    '\x3cdiv class="diag-item"\x3e\x3cspan\x3eSLAVE 信標\x3c/span\x3e\x3cspan id="dg_slave"\x3e--\x3c/span\x3e\x3c/div\x3e' +
-                    '\x3cdiv class="diag-item"\x3e\x3cspan\x3e當前取樣率\x3c/span\x3e\x3cspan id="dg_sr"\x3e--\x3c/span\x3e\x3c/div\x3e' +
-                    '\x3cdiv class="diag-item"\x3e\x3cspan\x3e內部 SRAM\x3c/span\x3e\x3cspan id="dg_sram"\x3e--\x3c/span\x3e\x3c/div\x3e' +
-                    '\x3cdiv class="diag-item"\x3e\x3cspan\x3e外部 PSRAM\x3c/span\x3e\x3cspan id="dg_psram"\x3e--\x3c/span\x3e\x3c/div\x3e' +
+                '\x3cdiv id="diag_status" style="background: #1e1e1e; color: #00ff00; font-family: monospace; padding: 10px; border-radius: 6px; font-size: 12px; line-height: 1.6;"\x3e' +
+                    '點擊「🔍 執行硬體自檢」後，結果將顯示於此處與下方終端機小視窗...' +
                 '\x3c/div\x3e' +
             '\x3c/div\x3e' +
             '\x3chr style="border:0; border-top:1px solid #ddd; margin: 20px 0;"\x3e' +
@@ -133,10 +118,10 @@
             '\x3cdiv class="control-group"\x3e' +
                 '\x3cdiv style="display: flex; gap: 8px;"\x3e' +
                     '\x3cbutton onclick="startAudiometryUI()" style="background-color: #27ae60; padding: 10px; font-size: 14px; margin-bottom: 6px;"\x3e▶️ 開始自動測聽\x3c/button\x3e' +
-                    '\x3cbutton onclick="sendQuickCmd(\'aud_stop\')" style="background-color: #c0392b; padding: 10px; font-size: 14px; margin-bottom: 6px;"\x3e⏹️️ 停止測聽\x3c/button\x3e' +
+                    '\x3cbutton onclick="sendQuickCmd(\'aud_stop\')" style="background-color: #c0392b; padding: 10px; font-size: 14px; margin-bottom: 6px;"\x3e⏹ 停止測聽\x3c/button\x3e' +
                 '\x3c/div\x3e' +
                 '\x3cdiv id="aud_status" style="background: #fff; padding: 12px; border-radius: 8px; font-size: 13px; text-align: center; border: 2px solid #ddd; margin-bottom: 10px; line-height: 1.5; transition: all 0.2s;"\x3e' +
-                    '點擊「▶️️ 開始自動測聽」後，此處會顯示即時播音與詢問提示' +
+                    '點擊「▶ 開始自動測聽」後，此處會顯示即時播音與詢問提示' +
                 '\x3c/div\x3e' +
                 '\x3cbutton onclick="userClickedHeard()" style="background-color: #f39c12; color: #fff; padding: 18px; font-size: 18px; margin-bottom: 4px; width: 100%; box-shadow: 0 4px 10px rgba(243,156,18,0.3);"\x3e' +
                     '👂 我聽到了！ (有聽到嘟聲請點此)' +
@@ -150,11 +135,8 @@
             defaultBtn.insertAdjacentHTML('afterend', uiHtml);
         } else if (tuningDiv) {
             tuningDiv.insertAdjacentHTML('beforeend', uiHtml);
-        } else {
-            document.body.insertAdjacentHTML('beforeend', uiHtml);
         }
     }
-    // 立即嘗試注入，若 DOM 尚未準備好則在 DOMContentLoaded 時再次確保注入
     injectSelfTestUI();
     document.addEventListener("DOMContentLoaded", injectSelfTestUI);
 
@@ -208,7 +190,7 @@
         }
     }, 300);
 
-    // 3. 同步 ESP32 目前數值 (僅在初次連線與恢復預設時呼叫一次)
+    // 3. 同步 ESP32 目前數值
     async function syncFromESP32() {
         try {
             const value = await txCharacteristic.readValue();
@@ -283,9 +265,6 @@
 
     // ⭐ 5. 接收並解析 ESP32 推播的所有自檢、測聽互動與狀態訊息
     function handleNotifications(event) {
-        // 先確保自檢面板已存在於 DOM 中
-        if (!document.getElementById('dg_dac')) injectSelfTestUI();
-
         let rawChunk = new TextDecoder().decode(event.target.value);
         console.log("📥 收到 ESP32 推播:", rawChunk);
 
@@ -299,25 +278,27 @@
     }
 
     function processSingleLine(value) {
-        // (1) 硬體自檢報告：攔截 DIAG,1,1,0,1,0,21,4032,44100
+        // (1) 硬體自檢報告：攔截 DIAG,1,1,0,1,0,21,4032,44100 並直接顯示在小視窗！
         let diagIdx = value.indexOf("DIAG,");
         if (diagIdx !== -1) {
             let diagStr = value.substring(diagIdx).trim();
             let p = diagStr.split(",");
             if (p.length >= 9) {
-                let elDac = document.getElementById("dg_dac");
-                if (elDac) {
-                    document.getElementById("dg_dac").innerHTML   = (p[1] === '1') ? '\x3cspan class="ok-tag"\x3e🟢 正常\x3c/span\x3e' : '\x3cspan class="err-tag"\x3e🔴 異常\x3c/span\x3e';
-                    document.getElementById("dg_adc").innerHTML   = (p[2] === '1') ? '\x3cspan class="ok-tag"\x3e🟢 正常\x3c/span\x3e' : '\x3cspan class="err-tag"\x3e🔴 異常\x3c/span\x3e';
-                    document.getElementById("dg_i2c").innerHTML   = (p[3] === '0') ? '\x3cspan class="ok-tag"\x3e0 次\x3c/span\x3e' : ('\x3cspan class="err-tag"\x3e' + p[3] + ' 次\x3c/span\x3e');
-                    document.getElementById("dg_hp").innerHTML    = (p[4] === '1') ? '\x3cspan class="ok-tag"\x3e🎧 已插入\x3c/span\x3e' : '⚪ 未插入';
-                    document.getElementById("dg_slave").innerHTML = (p[5] === '1') ? '\x3cspan class="ok-tag"\x3e📡 在線\x3c/span\x3e' : '⚪ 單機';
-                    document.getElementById("dg_sram").innerText  = p[6] + " KB";
-                    document.getElementById("dg_psram").innerText = p[7] + " KB";
-                    document.getElementById("dg_sr").innerText    = p[8] + " Hz";
+                let summary = 
+                    "🛠️ [硬體自檢報告] " + diagStr + "\n" +
+                    "  • DAC(ES8311): " + (p[1] === '1' ? '🟢正常' : '🔴異常') + 
+                    " | ADC(ES7243E): " + (p[2] === '1' ? '🟢正常' : '🔴異常') + "\n" +
+                    "  • I2C重試: " + p[3] + "次" +
+                    " | 耳機孔: " + (p[4] === '1' ? '🎧已插入' : '⚪未插入') + 
+                    " | SLAVE: " + (p[5] === '1' ? '📡在線' : '⚪單機') + "\n" +
+                    "  • SRAM: " + p[6] + " KB | PSRAM: " + p[7] + " KB | 取樣率: " + p[8] + " Hz";
+
+                let diagBox = document.getElementById("diag_status");
+                if (diagBox) {
+                    diagBox.innerText = summary;
                 }
-                printToConsole("✅ [硬體自檢更新完成] " + diagStr);
-                if (isCollectingLog) collectedLogData += diagStr + "\n";
+                printToConsole(summary);
+                if (isCollectingLog) collectedLogData += summary + "\n";
                 return;
             }
         }
@@ -414,8 +395,16 @@
                 logDiv.innerHTML += "\x3cdiv style='padding:2px 0; border-bottom:1px dashed #eee;'\x3e🎯 \x3cb\x3e" + p[2] + " Hz\x3c/b\x3e 最終聽閾: \x3cb\x3e" + p[3] + " dB\x3c/b\x3e ➔ 自動補償 EQ: \x3cb style='color:#27ae60;'\x3e+" + p[4] + " dB\x3c/b\x3e\x3c/div\x3e";
                 logDiv.scrollTop = logDiv.scrollHeight;
             }
-            curAudBand = parseInt(p[1]) + 2;
-            curAudRound = 1;
+            let nextBandIdx = parseInt(p[1]) + 1;
+            if (nextBandIdx < 8) {
+                curAudBand = nextBandIdx + 1;
+                curAudFreq = eqFreqList[nextBandIdx];
+                curAudRound = 1;
+                curAudDb = 25;
+                audNextToneTimer = setTimeout(function() {
+                    showPlayAndAskUI(curAudBand, curAudFreq, curAudRound, curAudDb);
+                }, 1200);
+            }
             return;
         }
         if (value.startsWith("AUD_ERR,")) {
@@ -436,9 +425,6 @@
                 box.innerHTML = "🎉 \x3cb style='color:#fff; font-size:15px;'\x3e【全部 8 頻段測聽完成！】\x3cbr\x3e專屬 EQ 已自動套用並同步至上方滑桿\x3c/b\x3e";
             }
             syncFromESP32();
-            setTimeout(function() {
-                alert("🎉 聽力檢測全部完成！\n\n系統已根據您的聽力結果自動調整 8 段 EQ 滑桿，您可以試聽看看，滿意後點擊「💾 永久儲存當前參數至耳機」即可！");
-            }, 300);
             return;
         }
         if (value === "AUD_STOP") {
@@ -452,7 +438,7 @@
             return;
         }
 
-        // (4) 其他一般訊息印到黑色 Console
+        // (4) 其他一般訊息印到黑色 Console 小視窗
         printToConsole(value);
         if (isCollectingLog) {
             collectedLogData += value + "\n";
@@ -474,6 +460,13 @@
 
         // 1.2 秒後自動切換到下一輪的「🔊 正在播放測試聲音...」與「❓ 剛剛有聽到嗎？」
         curAudRound++;
+        if (curAudRound > 5) {
+            curAudRound = 1;
+            if (curAudBand < 8) {
+                curAudBand++;
+                curAudFreq = eqFreqList[curAudBand - 1];
+            }
+        }
         audNextToneTimer = setTimeout(function() {
             showPlayAndAskUI(curAudBand, curAudFreq, curAudRound, curAudDb);
         }, 1200);
@@ -491,7 +484,6 @@
             txCharacteristic.removeEventListener('characteristicvaluechanged', handleNotifications);
             txCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
             
-            // 初次連線同步一次基準值
             await syncFromESP32();
 
             document.getElementById('ble-status').className = 'status-bar status-online';
@@ -500,19 +492,20 @@
             document.getElementById('tuning').style.opacity = '1';
             document.getElementById('tuning').style.pointerEvents = 'auto';
 
-            // 連上後拉開 800ms 間距再發送 ble_diag，避免與剛才的 syncFromESP32 撞車
-            setTimeout(function() { sendQuickCmd('ble_diag\n'); }, 800);
+            // 連上後拉開 800ms 間距再發送乾淨的 ble_diag (不加 \n)
+            setTimeout(function() { sendQuickCmd('ble_diag'); }, 800);
         } catch (e) {
             console.error("❌ GATT 失敗:", e);
             showOffline("🔴 GATT 連線失敗，請手動重連");
         }
     }
 
-    // ⭐ 乾淨版指令發送：不再附加 readValue()，徹底避免觸發 ESP32 READ_EVT 與 Stack Overflow
+    // ⭐ 乾淨版指令發送：強制 trim() 去除換行，避免 ESP32 Shell 報 unknown cmd
     async function sendQuickCmd(cmd) {
         if (!txCharacteristic) { alert("請先連線藍牙！"); return; }
         try {
-            await txCharacteristic.writeValue(new TextEncoder().encode(cmd));
+            let cleanCmd = cmd.trim();
+            await txCharacteristic.writeValue(new TextEncoder().encode(cleanCmd));
         } catch (e) {
             console.error("❌ 發送失敗:", e);
         }
