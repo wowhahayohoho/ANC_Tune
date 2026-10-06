@@ -684,18 +684,25 @@
         try {
             await txCharacteristic.writeValue(new TextEncoder().encode(cleanCmd));
 
-            // ⭐ 雙重保底：送出指令 120ms 後，主動呼叫 readValue() 把 g_last_ble_msg (如 DIAG) 讀回來！
+            // 🔥 關鍵：等 200ms 讓 ESP32 算完 DIAG，立刻用已經證明 100% 會通的 readValue (事件 ID: 1) 把資料拉回來！
             setTimeout(async function() {
                 try {
                     const val = await txCharacteristic.readValue();
                     const str = new TextDecoder().decode(val).trim();
-                    if (str.length > 0 && !str.startsWith("SYNC")) {
+                    let fb = document.getElementById("diag_feedback");
+                    if (fb) {
+                        fb.style.background = "#d4efdf";
+                        fb.style.color = "#1e8449";
+                        fb.textContent = "📥 [Read成功]: " + str;
+                    }
+                    if (str.length > 0) {
                         processSingleLine(str);
                     }
                 } catch (readErr) {
-                    console.warn("讀取略過:", readErr);
+                    let fb = document.getElementById("diag_feedback");
+                    if (fb) fb.textContent = "⚠️ Read錯誤: " + readErr;
                 }
-            }, 120);
+            }, 200);
         } catch (e) {
             printToConsole("❌ 發送失敗：" + e);
             let fb = document.getElementById("diag_feedback");
