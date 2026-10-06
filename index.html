@@ -438,6 +438,7 @@
     }
 
     function processSingleLine(value) {
+        // (1) 攔截 ble_send_to_web 傳來的 DIAG,1,1,0,1,0,22,4030,44100 並填入 8 個方框！
         let diagIdx = value.indexOf("DIAG,");
         if (diagIdx !== -1) {
             let diagStr = value.substring(diagIdx).trim();
@@ -460,6 +461,7 @@
             if (p.length > 7) setBox("dg_psram", p[7] + ' KB', null);
             if (p.length > 8) setBox("dg_sr",    p[8] + ' Hz', null);
 
+            // 把黃色的「等待 ESP32 回傳...」橫幅改成綠色「自檢完成」！
             let fb = document.getElementById("diag_feedback");
             if (fb) {
                 fb.style.background = "#d4efdf";
@@ -467,7 +469,7 @@
                 fb.textContent = "✅ 自檢完成：" + diagStr;
             }
 
-            printToConsole("🛠 [硬體自檢] " + diagStr);
+            printToConsole("🛠 [硬體自檢報告] " + diagStr);
             if (isCollectingLog) collectedLogData += diagStr + "\n";
             return;
         }
