@@ -237,8 +237,25 @@
 
     // ⭐ 5. 接收並解析 ESP32 推播的所有自檢、測聽互動與狀態訊息
     function handleNotifications(event) {
-        let value = new TextDecoder().decode(event.target.value).trim();
-        console.log("📥 收到 ESP32 推播:", value);
+        let rawValue = new TextDecoder().decode(event.target.value).trim();
+
+		console.log("📥 收到 ESP32 推播:", rawValue);
+
+		let messages = rawValue
+			.split(/\r?\n/)
+			.map(function(x) {
+				return x.trim();
+			})
+			.filter(function(x) {
+				return x.length > 0;
+			});
+
+		for (let value of messages) {
+
+			console.log("📥 處理 ESP32 訊息:", value);
+
+			// ↓↓↓ 下面原本 handleNotifications 裡面的所有 if
+			// 都放在這個 for 裡面
 
         // (1) 場景與環境狀態推播 (STATUS,scene,rms,vad)
         if (value.startsWith("STATUS,") || value.startsWith("SCENE,")) {
@@ -262,19 +279,67 @@
 
         // (2) 硬體自檢報告：DIAG,dac,adc,i2c_err,hp,slave,sram,psram,sr
         if (value.startsWith("DIAG,")) {
-            let p = value.split(",");
-            document.getElementById("dg_dac").innerHTML   = (p[1] === '1') ? '\x3cspan class="ok-tag"\x3e🟢 正常\x3c/span\x3e' : '\x3cspan class="err-tag"\x3e🔴 異常\x3c/span\x3e';
-            document.getElementById("dg_adc").innerHTML   = (p[2] === '1') ? '\x3cspan class="ok-tag"\x3e🟢 正常\x3c/span\x3e' : '\x3cspan class="err-tag"\x3e🔴 異常\x3c/span\x3e';
-            document.getElementById("dg_i2c").innerHTML   = (p[3] === '0') ? '\x3cspan class="ok-tag"\x3e0 次\x3c/span\x3e' : ('\x3cspan class="err-tag"\x3e' + p[3] + ' 次\x3c/span\x3e');
-            document.getElementById("dg_hp").innerHTML    = (p[4] === '1') ? '\x3cspan class="ok-tag"\x3e🎧 已插入\x3c/span\x3e' : '⚪ 未插入';
-            document.getElementById("dg_slave").innerHTML = (p[5] === '1') ? '\x3cspan class="ok-tag"\x3e📡 在線\x3c/span\x3e' : '⚪ 單機';
-            document.getElementById("dg_sram").innerText  = p[6] + " KB";
-            document.getElementById("dg_psram").innerText = p[7] + " KB";
-            document.getElementById("dg_sr").innerText    = p[8] + " Hz";
-            printToConsole("[硬體自檢完成] " + value);
-            if (isCollectingLog) collectedLogData += value + "\n";
-            return;
-        }
+
+			let p = value.split(",");
+
+			console.log("🔧 DIAG 資料:", p);
+
+			if (p.length < 9) {
+				console.warn("⚠️ DIAG 資料格式錯誤:", value);
+				return;
+			}
+
+			// DAC
+			document.getElementById("dg_dac").innerHTML =
+				(p[1] === '1')
+					? '<span class="ok-tag">🟢 正常</span>'
+					: '<span class="err-tag">🔴 異常</span>';
+
+			// ADC
+			document.getElementById("dg_adc").innerHTML =
+				(p[2] === '1')
+					? '<span class="ok-tag">🟢 正常</span>'
+					: '<span class="err-tag">🔴 異常</span>';
+
+			// I2C retry
+			document.getElementById("dg_i2c").innerHTML =
+				(p[3] === '0')
+					? '<span class="ok-tag">🟢 0 次</span>'
+					: '<span class="err-tag">' + p[3] + ' 次</span>';
+
+			// Headphone
+			document.getElementById("dg_hp").innerHTML =
+				(p[4] === '1')
+					? '<span class="ok-tag">🎧 已插入</span>'
+					: '<span style="color:#7f8c8d;">⚪ 未插入</span>';
+
+			// Slave
+			document.getElementById("dg_slave").innerHTML =
+				(p[5] === '1')
+					? '<span class="ok-tag">📡 在線</span>'
+					: '<span style="color:#7f8c8d;">⚪ 單機</span>';
+
+			// SRAM
+			document.getElementById("dg_sram").innerText =
+				p[6] + " KB";
+
+			// PSRAM
+			document.getElementById("dg_psram").innerText =
+				p[7] + " KB";
+
+			// Sample Rate
+			document.getElementById("dg_sr").innerText =
+				p[8] + " Hz";
+
+			// Console
+			printToConsole("[硬體自檢完成] " + value);
+
+			if (isCollectingLog) {
+				collectedLogData += value + "\n";
+			}
+
+			return;
+		}
 
         // (3) 聽力自檢：4 階段視覺回饋 (播音中 -> 詢問中 -> 收到反應/自動加音量 -> 完成彈窗)
         let box = document.getElementById("aud_status");
@@ -290,33 +355,52 @@
             return;
         }
         if (value.startsWith("AUD_STEP,")) {
-            let p = value.split(",");
-            let bandNum = parseInt(p[1]) + 1;
-            let freqStr = p[2];
-            let roundStr = p[3];
-            let dbStr = p[4];
-            let nextDb = parseInt(dbStr) + 5;
+			let p = value.split(",");
 
-            if (audAskTimer) clearTimeout(audAskTimer);
+			let bandNum = parseInt(p[1]) + 1;
+			let freqStr = p[2];
+			let roundStr = p[3];
+			let dbStr = p[4];
+			let nextDb = parseInt(dbStr) + 5;
 
-            // 階段 1 (0 ~ 0.5秒)：亮藍色，明確提示「正在播放測試音」
-            box.style.background = "#d6eaf8";
-            box.style.borderColor = "#2980b9";
-            box.innerHTML = 
-                "🔊 \x3cb style='color:#1f618d; font-size:15px;'\x3e【正在播放測試音... 請仔細聽】\x3c/b\x3e\x3cbr\x3e" +
-                "頻段 (" + bandNum + "/8)：\x3cb\x3e" + freqStr + " Hz\x3c/b\x3e ｜ 第 " + roundStr + "/5 輪 ｜ 目前音量：\x3cb\x3e" + dbStr + " dB\x3c/b\x3e";
+			if (audAskTimer) {
+				clearTimeout(audAskTimer);
+				audAskTimer = null;
+			}
 
-            // 階段 2 (0.5秒播完後)：變亮橘色，詢問受測者「剛剛有聽到嗎？」
-            audAskTimer = setTimeout(function() {
-                box.style.background = "#fdebd0";
-                box.style.borderColor = "#f39c12";
-                box.innerHTML = 
-                    "❓ \x3cb style='color:#d35400; font-size:15px;'\x3e【剛剛有聽到「嘟」一聲嗎？】\x3c/b\x3e\x3cbr\x3e" +
-                    "👉 \x3cb style='color:#c0392b;'\x3e有聽到請立刻按下方大按鈕！\x3c/b\x3e\x3cbr\x3e" +
-                    "\x3cspan style='color:#7f8c8d; font-size:12px;'\x3e(若太小聲沒聽到請不用按，系統將自動調高至 " + nextDb + " dB 重試)\x3c/span\x3e";
-            }, 500);
-            return;
-        }
+			// ==========================================
+			// 第一階段：播放測試音
+			// ==========================================
+			box.style.background = "#d6eaf8";
+			box.style.borderColor = "#2980b9";
+
+			box.innerHTML =
+				"🔊 <b style='color:#1f618d; font-size:15px;'>【正在播放測試音...】</b><br>" +
+				"頻段 (" + bandNum + "/8)：<b>" + freqStr + " Hz</b>" +
+				" ｜ 第 " + roundStr + "/5 輪" +
+				" ｜ 音量：<b>" + dbStr + " dB</b><br>" +
+				"<span style='color:#566573; font-size:12px;'>🎵 請仔細聆聽，不需要按按鈕</span>";
+
+			// ==========================================
+			// 第二階段：播放結束後詢問
+			// ==========================================
+			audAskTimer = setTimeout(function() {
+
+				box.style.background = "#fdebd0";
+				box.style.borderColor = "#f39c12";
+
+				box.innerHTML =
+					"❓ <b style='color:#d35400; font-size:16px;'>【剛剛有聽到「嘟」一聲嗎？】</b><br>" +
+					"👉 <b style='color:#c0392b;'>有聽到請立刻按下方「我聽到了！」</b><br>" +
+					"<span style='color:#7f8c8d; font-size:12px;'>" +
+					"沒聽到就不要按，系統會自動提高音量至 " +
+					nextDb +
+					" dB 重試</span>";
+
+			}, 500);
+
+			return;
+		}
         if (value.startsWith("AUD_HIT,")) {
             if (audAskTimer) clearTimeout(audAskTimer);
             let p = value.split(",");
@@ -375,15 +459,27 @@
 
     // 當受測者點擊「👂 我聽到了！」大按鈕時，網頁立即給予綠色視覺回饋並發送指令
     function userClickedHeard() {
-        if (audAskTimer) clearTimeout(audAskTimer);
-        let box = document.getElementById("aud_status");
-        if (box) {
-            box.style.background = "#d4efdf";
-            box.style.borderColor = "#27ae60";
-            box.innerHTML = "✅ \x3cb style='color:#1e8449; font-size:15px;'\x3e【已收到您的按鈕反應！】\x3c/b\x3e\x3cbr\x3e正在記錄聽力門檻，請稍候下一輪測試音...";
-        }
-        sendQuickCmd("aud_heard");
-    }
+
+		if (audAskTimer) {
+			clearTimeout(audAskTimer);
+			audAskTimer = null;
+		}
+
+		let box = document.getElementById("aud_status");
+
+		if (box) {
+
+			box.style.background = "#d4efdf";
+			box.style.borderColor = "#27ae60";
+
+			box.innerHTML =
+				"✅ <b style='color:#1e8449; font-size:15px;'>【已收到您的按鈕反應】</b><br>" +
+				"🎧 已記錄此次聽力反應<br>" +
+				"<span style='color:#566573; font-size:12px;'>⏳ 請稍候，下一個測試音即將播放...</span>";
+		}
+
+		sendQuickCmd("aud_heard");
+	}
 
     // 6. 背景靜默重連與連線初始化
     async function connectGATT() {
