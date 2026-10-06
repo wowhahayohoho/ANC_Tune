@@ -444,7 +444,6 @@
             let diagStr = value.substring(diagIdx).trim();
             let p = diagStr.split(",");
 
-            // 這個輔助函式負責把「待檢測」換成真正的綠燈/紅燈與數值！
             const setBox = function(id, text, isOk) {
                 const el = document.getElementById(id);
                 if (!el) return;
@@ -471,7 +470,6 @@
             if (p.length > 7) setBox("dg_psram", p[7] + ' KB', null);
             if (p.length > 8) setBox("dg_sr",    p[8] + ' Hz', null);
 
-            // 更新黃色橫幅為綠色完成狀態
             let fb = document.getElementById("diag_feedback");
             if (fb) {
                 fb.style.background = "#d4efdf";
@@ -479,17 +477,8 @@
                 fb.textContent = "✅ 自檢完成 (" + new Date().toLocaleTimeString() + ")：" + diagStr;
             }
 
-            let reportText = 
-                "🛠 [硬體自檢報告] " + diagStr + "\n" +
-                "  • DAC(ES8311): " + (p[1] === '1' ? '🟢正常' : '🔴異常') + 
-                " | ADC(ES7243E): " + (p[2] === '1' ? '🟢正常' : '🔴異常') + 
-                " | I2C重試: " + (p[3] || '--') + "次\n" +
-                "  • 耳機孔: " + (p[4] === '1' ? '🎧已插入' : '⚪未插入') + 
-                " | SLAVE: " + (p[5] === '1' ? '📡在線' : '⚪單機') + "\n" +
-                "  • SRAM: " + (p[6] || '--') + "KB | PSRAM: " + (p[7] || '--') + "KB | 取樣率: " + (p[8] || '--') + "Hz";
-
-            printToConsole(reportText);
-            if (isCollectingLog) collectedLogData += reportText + "\n";
+            printToConsole("🛠 [硬體自檢報告] " + diagStr);
+            if (isCollectingLog) collectedLogData += diagStr + "\n";
             return;
         }
 
@@ -699,6 +688,23 @@
         printToConsole(cleanCmd, true);
         try {
             await txCharacteristic.writeValue(new TextEncoder().encode(cleanCmd));
+
+            // ⭐ 破案關鍵：因為 ESP32 是用事件 ID: 21 (set_attr_value) 把 DIAG 存在 Read 緩衝區，
+            // 所以送出 ble_diag 後等 150ms 主動呼叫 readValue() 把它讀出來！
+            if (cleanCmd === "ble_diag") {
+                setTimeout(async function() {
+                    try {
+                        const val = await txCharacteristic.readValue();
+                        const str = new TextDecoder().decode(val).trim();
+                        console.log("📥 [readValue 讀回 DIAG]:", str);
+                        if (str.length > 0) {
+                            processSingleLine(str);
+                        }
+                    } catch (readErr) {
+                        console.error("讀取 DIAG 失敗:", readErr);
+                    }
+                }, 150);
+            }
         } catch (e) {
             printToConsole("❌ 發送失敗：" + e);
             let fb = document.getElementById("diag_feedback");
