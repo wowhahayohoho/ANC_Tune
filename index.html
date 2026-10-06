@@ -633,26 +633,22 @@
     }
 
     // ⭐ 關鍵：自動在結尾加上 \n 換行符號！
+    // ⭐ 100% 與底下 Debug Console 發送按鈕走完全相同的 writeValue 通道！
     async function sendQuickCmd(cmd) {
-        if (!txCharacteristic) { alert("請先連線藍牙！"); return; }
+        if (!txCharacteristic) { 
+            alert("請先連線藍牙！"); 
+            return; 
+        }
+        let cleanCmd = cmd.trim();
+        printToConsole(cleanCmd, true);
+
         try {
-            let cleanCmd = cmd.trim();
-            printToConsole(cleanCmd, true);
-            const data = new TextEncoder().encode(cleanCmd);
-            if (txCharacteristic.writeValueWithoutResponse) {
-                await txCharacteristic.writeValueWithoutResponse(data);
-            } else {
-                await txCharacteristic.writeValue(data);
-            }
+            // 跟 sendConsoleCmd 一模一樣，只用標準 writeValue！
+            await txCharacteristic.writeValue(new TextEncoder().encode(cleanCmd));
         } catch (e) {
-            // 若 Characteristic 不支援 WithoutResponse，自動退回標準 writeValue
-            try {
-                await txCharacteristic.writeValue(new TextEncoder().encode(cmd.trim()));
-            } catch (err2) {
-                printToConsole("❌ 發送失敗：" + err2);
-                let fb = document.getElementById("diag_feedback");
-                if (fb) fb.textContent = "❌ 發送失敗: " + err2.message;
-            }
+            printToConsole("❌ 發送失敗：" + e);
+            let fb = document.getElementById("diag_feedback");
+            if (fb) fb.textContent = "❌ 發送失敗: " + e;
         }
     }
 
