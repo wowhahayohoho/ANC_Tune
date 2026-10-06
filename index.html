@@ -100,118 +100,179 @@
     // ⭐ 0. 自動在網頁注入「硬體自檢(小視窗顯示版)」與「8頻段聽力驗配」UI 面板
     
     function injectSelfTestUI() {
-		if (document.getElementById('aud_status')) return;
+        if (document.getElementById('aud_status')) return;
 
-		const defaultBtn = document.getElementById('defaultBtn');
-		if (!defaultBtn) return;
+        // 注入 8 個方框的 CSS 樣式
+        const style = document.createElement('style');
+        style.textContent = 
+            '.diag-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }' +
+            '.diag-item { background: #fff; border: 1px solid #e1e8ed; padding: 8px 10px; border-radius: 6px; font-size: 12px; display: flex; justify-content: space-between; align-items: center; }' +
+            '.ok-tag { color: #27ae60; font-weight: bold; }' +
+            '.err-tag { color: #e74c3c; font-weight: bold; }';
+        document.head.appendChild(style);
 
-		const wrapper = document.createElement('div');
+        const defaultBtn = document.getElementById('defaultBtn');
+        if (!defaultBtn) return;
 
-		// --- 區塊 1: 硬體自檢 (不放那 8 個 -- 格子，直接顯示在底下黑色小視窗) ---
-		const title1 = document.createElement('h4');
-		title1.textContent = '🛠️ 硬體與雙機健康自檢 (Self-Test)';
-		title1.style.marginTop = '20px';
+        const wrapper = document.createElement('div');
 
-		const group1 = document.createElement('div');
-		group1.className = 'control-group';
+        // --- 區塊 1: 硬體自檢 (含即時 Feedback 橫幅與 8 個狀態方框) ---
+        const title1 = document.createElement('h4');
+        title1.textContent = '🛠️ 硬體與雙機健康自檢 (Self-Test)';
+        title1.style.marginTop = '20px';
 
-		const btnRow1 = document.createElement('div');
-		btnRow1.style.display = 'flex';
-		btnRow1.style.gap = '8px';
+        const group1 = document.createElement('div');
+        group1.className = 'control-group';
 
-		const btnDiag = document.createElement('button');
-		btnDiag.textContent = '🔍 執行硬體自檢';
-		btnDiag.style.backgroundColor = '#2980b9';
-		btnDiag.style.padding = '10px';
-		btnDiag.style.fontSize = '14px';
-		btnDiag.onclick = function() { sendQuickCmd('ble_diag'); };
+        const btnRow1 = document.createElement('div');
+        btnRow1.style.display = 'flex';
+        btnRow1.style.gap = '8px';
 
-		const btnTone = document.createElement('button');
-		btnTone.textContent = '🔊 1kHz 喇叭測試';
-		btnTone.style.backgroundColor = '#16a085';
-		btnTone.style.padding = '10px';
-		btnTone.style.fontSize = '14px';
-		btnTone.onclick = function() { sendQuickCmd('web_tone 1000 65'); };
+        const btnDiag = document.createElement('button');
+        btnDiag.textContent = '🔍 執行硬體自檢';
+        btnDiag.style.backgroundColor = '#2980b9';
+        btnDiag.style.padding = '10px';
+        btnDiag.style.fontSize = '14px';
+        btnDiag.onclick = function() {
+            const fb = document.getElementById('diag_feedback');
+            if (fb) {
+                fb.style.background = '#fff3cd';
+                fb.style.color = '#856404';
+                fb.textContent = '⏳ 已發送 ble_diag 指令，等待 ESP32 回傳自檢數據...';
+            }
+            sendQuickCmd('ble_diag');
+        };
 
-		btnRow1.appendChild(btnDiag);
-		btnRow1.appendChild(btnTone);
+        const btnTone = document.createElement('button');
+        btnTone.textContent = '🔊 1kHz 喇叭測試';
+        btnTone.style.backgroundColor = '#16a085';
+        btnTone.style.padding = '10px';
+        btnTone.style.fontSize = '14px';
+        btnTone.onclick = function() {
+            const fb = document.getElementById('diag_feedback');
+            if (fb) {
+                fb.style.background = '#d1ecf1';
+                fb.style.color = '#0c5460';
+                fb.textContent = '🔊 已發送 1kHz 測試音指令 (web_tone 1000 65)...';
+            }
+            sendQuickCmd('web_tone 1000 65');
+        };
 
-		const hint1 = document.createElement('div');
-		hint1.textContent = '💡 點擊後，自檢回傳結果將直接顯示於下方黑色 BLE Console 小視窗。';
-		hint1.style.fontSize = '12px';
-		hint1.style.color = '#7f8c8d';
+        btnRow1.appendChild(btnDiag);
+        btnRow1.appendChild(btnTone);
 
-		group1.appendChild(btnRow1);
-		group1.appendChild(hint1);
+        // 即時 Feedback 狀態顯示列
+        const diagFeedback = document.createElement('div');
+        diagFeedback.id = 'diag_feedback';
+        diagFeedback.style.background = '#eef2f5';
+        diagFeedback.style.color = '#576574';
+        diagFeedback.style.padding = '8px 10px';
+        diagFeedback.style.borderRadius = '6px';
+        diagFeedback.style.fontSize = '12px';
+        diagFeedback.style.fontWeight = 'bold';
+        diagFeedback.style.textAlign = 'center';
+        diagFeedback.style.marginBottom = '8px';
+        diagFeedback.textContent = '💡 點擊上方「🔍 執行硬體自檢」更新下方硬體狀態';
 
-		// --- 區塊 2: 原位聽力驗配自檢 ---
-		const title2 = document.createElement('h4');
-		title2.textContent = '🏥 原位聽力驗配自檢 (8頻段 5取3)';
-		title2.style.marginTop = '20px';
+        // 8 個硬體狀態方框
+        const grid = document.createElement('div');
+        grid.className = 'diag-grid';
+        const boxConfigs = [
+            { label: 'ES8311 (DAC)', id: 'dg_dac' },
+            { label: 'ES7243E (ADC)', id: 'dg_adc' },
+            { label: 'I2C 重試次數', id: 'dg_i2c' },
+            { label: '耳機孔狀態', id: 'dg_hp' },
+            { label: 'SLAVE 信標', id: 'dg_slave' },
+            { label: '當前取樣率', id: 'dg_sr' },
+            { label: '內部 SRAM', id: 'dg_sram' },
+            { label: '外部 PSRAM', id: 'dg_psram' }
+        ];
+        boxConfigs.forEach(function(cfg) {
+            const item = document.createElement('div');
+            item.className = 'diag-item';
+            const s1 = document.createElement('span');
+            s1.textContent = cfg.label;
+            const s2 = document.createElement('span');
+            s2.id = cfg.id;
+            s2.textContent = '待檢測';
+            s2.style.color = '#95a5a6';
+            item.appendChild(s1);
+            item.appendChild(s2);
+            grid.appendChild(item);
+        });
 
-		const group2 = document.createElement('div');
-		group2.className = 'control-group';
+        group1.appendChild(btnRow1);
+        group1.appendChild(diagFeedback);
+        group1.appendChild(grid);
 
-		const btnRow2 = document.createElement('div');
-		btnRow2.style.display = 'flex';
-		btnRow2.style.gap = '8px';
+        // --- 區塊 2: 原位聽力驗配自檢 ---
+        const title2 = document.createElement('h4');
+        title2.textContent = '🏥 原位聽力驗配自檢 (8頻段 5取3)';
+        title2.style.marginTop = '20px';
 
-		const btnAudStart = document.createElement('button');
-		btnAudStart.textContent = '▶️ 開始自動測聽';
-		btnAudStart.style.backgroundColor = '#27ae60';
-		btnAudStart.style.padding = '10px';
-		btnAudStart.style.fontSize = '14px';
-		btnAudStart.onclick = startAudiometryUI;
+        const group2 = document.createElement('div');
+        group2.className = 'control-group';
 
-		const btnAudStop = document.createElement('button');
-		btnAudStop.textContent = '⏹ 停止測聽';
-		btnAudStop.style.backgroundColor = '#c0392b';
-		btnAudStop.style.padding = '10px';
-		btnAudStop.style.fontSize = '14px';
-		btnAudStop.onclick = function() { sendQuickCmd('aud_stop'); };
+        const btnRow2 = document.createElement('div');
+        btnRow2.style.display = 'flex';
+        btnRow2.style.gap = '8px';
 
-		btnRow2.appendChild(btnAudStart);
-		btnRow2.appendChild(btnAudStop);
+        const btnAudStart = document.createElement('button');
+        btnAudStart.textContent = '▶️ 開始自動測聽';
+        btnAudStart.style.backgroundColor = '#27ae60';
+        btnAudStart.style.padding = '10px';
+        btnAudStart.style.fontSize = '14px';
+        btnAudStart.onclick = startAudiometryUI;
 
-		const audStatus = document.createElement('div');
-		audStatus.id = 'aud_status';
-		audStatus.style.background = '#fff';
-		audStatus.style.padding = '12px';
-		audStatus.style.borderRadius = '8px';
-		audStatus.style.fontSize = '13px';
-		audStatus.style.textAlign = 'center';
-		audStatus.style.border = '2px solid #ddd';
-		audStatus.style.marginBottom = '10px';
-		audStatus.style.whiteSpace = 'pre-line';
-		audStatus.textContent = '點擊「開始自動測聽」後，此處會顯示即時播音與詢問提示';
+        const btnAudStop = document.createElement('button');
+        btnAudStop.textContent = '⏹ 停止測聽';
+        btnAudStop.style.backgroundColor = '#c0392b';
+        btnAudStop.style.padding = '10px';
+        btnAudStop.style.fontSize = '14px';
+        btnAudStop.onclick = function() { sendQuickCmd('aud_stop'); };
 
-		const btnHeard = document.createElement('button');
-		btnHeard.textContent = '👂 我聽到了！ (有聽到嘟聲請點此)';
-		btnHeard.style.backgroundColor = '#f39c12';
-		btnHeard.style.padding = '18px';
-		btnHeard.style.fontSize = '18px';
-		btnHeard.onclick = userClickedHeard;
+        btnRow2.appendChild(btnAudStart);
+        btnRow2.appendChild(btnAudStop);
 
-		const audLog = document.createElement('div');
-		audLog.id = 'aud_log';
-		audLog.style.fontSize = '12px';
-		audLog.style.marginTop = '8px';
-		audLog.style.maxHeight = '130px';
-		audLog.style.overflowY = 'auto';
-		audLog.style.whiteSpace = 'pre-line';
+        const audStatus = document.createElement('div');
+        audStatus.id = 'aud_status';
+        audStatus.style.background = '#fff';
+        audStatus.style.padding = '12px';
+        audStatus.style.borderRadius = '8px';
+        audStatus.style.fontSize = '13px';
+        audStatus.style.textAlign = 'center';
+        audStatus.style.border = '2px solid #ddd';
+        audStatus.style.marginBottom = '10px';
+        audStatus.style.whiteSpace = 'pre-line';
+        audStatus.textContent = '點擊「開始自動測聽」後，此處會顯示即時播音與詢問提示';
 
-		group2.appendChild(btnRow2);
-		group2.appendChild(audStatus);
-		group2.appendChild(btnHeard);
-		group2.appendChild(audLog);
+        const btnHeard = document.createElement('button');
+        btnHeard.textContent = '👂 我聽到了！ (有聽到嘟聲請點此)';
+        btnHeard.style.backgroundColor = '#f39c12';
+        btnHeard.style.padding = '18px';
+        btnHeard.style.fontSize = '18px';
+        btnHeard.onclick = userClickedHeard;
 
-		wrapper.appendChild(title1);
-		wrapper.appendChild(group1);
-		wrapper.appendChild(title2);
-		wrapper.appendChild(group2);
+        const audLog = document.createElement('div');
+        audLog.id = 'aud_log';
+        audLog.style.fontSize = '12px';
+        audLog.style.marginTop = '8px';
+        audLog.style.maxHeight = '130px';
+        audLog.style.overflowY = 'auto';
+        audLog.style.whiteSpace = 'pre-line';
 
-		defaultBtn.parentNode.insertBefore(wrapper, defaultBtn.nextSibling);
-	}
+        group2.appendChild(btnRow2);
+        group2.appendChild(audStatus);
+        group2.appendChild(btnHeard);
+        group2.appendChild(audLog);
+
+        wrapper.appendChild(title1);
+        wrapper.appendChild(group1);
+        wrapper.appendChild(title2);
+        wrapper.appendChild(group2);
+
+        defaultBtn.parentNode.insertBefore(wrapper, defaultBtn.nextSibling);
+    }
     injectSelfTestUI();
     document.addEventListener("DOMContentLoaded", injectSelfTestUI);
 
