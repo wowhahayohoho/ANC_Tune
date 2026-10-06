@@ -266,65 +266,19 @@
         }
     }
 
-    // 解析單行訊息並更新對應 UI
+    // 簡化版的接收處理，直接把回傳的原始字串顯示出來
     function processSingleLine(value) {
-        // (1) 硬體自檢報告：DIAG,dac,adc,i2c_err,hp,slave,sram,psram,sr
+        console.log("收到訊息:", value);
+
+        // 如果包含 DIAG，直接整行塞進畫面讓你看
         let diagIdx = value.indexOf("DIAG,");
         if (diagIdx !== -1) {
             let diagStr = value.substring(diagIdx).trim();
-            let p = diagStr.split(",");
-            if (p.length >= 9) {
-                let elDac = document.getElementById("dg_dac");
-                if (elDac) {
-                    document.getElementById("dg_dac").innerHTML   = (p[1] === '1') ? '\x3cspan class="ok-tag"\x3e🟢 正常\x3c/span\x3e' : '\x3cspan class="err-tag"\x3e🔴 異常\x3c/span\x3e';
-                    document.getElementById("dg_adc").innerHTML   = (p[2] === '1') ? '\x3cspan class="ok-tag"\x3e🟢 正常\x3c/span\x3e' : '\x3cspan class="err-tag"\x3e🔴 異常\x3c/span\x3e';
-                    document.getElementById("dg_i2c").innerHTML   = (p[3] === '0') ? '\x3cspan class="ok-tag"\x3e0 次\x3c/span\x3e' : ('\x3cspan class="err-tag"\x3e' + p[3] + ' 次\x3c/span\x3e');
-                    document.getElementById("dg_hp").innerHTML    = (p[4] === '1') ? '\x3cspan class="ok-tag"\x3e🎧 已插入\x3c/span\x3e' : '⚪ 未插入';
-                    document.getElementById("dg_slave").innerHTML = (p[5] === '1') ? '\x3cspan class="ok-tag"\x3e📡 在線\x3c/span\x3e' : '⚪ 單機';
-                    document.getElementById("dg_sram").innerText  = p[6] + " KB";
-                    document.getElementById("dg_psram").innerText = p[7] + " KB";
-                    document.getElementById("dg_sr").innerText    = p[8] + " Hz";
-                }
-                printToConsole("✅ [硬體自檢更新成功] " + diagStr);
-                return;
+            // 直接把整串原始碼顯示在第一個欄位 (DAC位置) 驗證看看
+            let elDac = document.getElementById("dg_dac");
+            if (elDac) {
+                elDac.innerText = diagStr;
             }
-        }
-
-        // (2) 其它訊息如 STATUS 或 測聽流程
-        if (value.startsWith("STATUS,") || value.startsWith("SCENE,")) {
-            let parts = value.split(",");
-            let scene_mode = parseInt(parts[1]);
-            let sceneBox = document.getElementById("scene_display");
-            if (sceneBox) {
-                if (scene_mode === 0) { sceneBox.innerText = "🟢 智能場景：安靜 (通透)"; sceneBox.style.background = "#27ae60"; }
-                else if (scene_mode === 1) { sceneBox.innerText = "🟡 智能場景：吵雜 (強效降噪)"; sceneBox.style.background = "#f39c12"; }
-                else if (scene_mode === 2) { sceneBox.innerText = "🔴 智能場景：對話中"; sceneBox.style.background = "#e74c3c"; }
-            }
-            return;
-        }
-
-        let box = document.getElementById("aud_status");
-        if (value === "AUD_START" && box) {
-            box.style.background = "#e8f4fd";
-            box.innerHTML = "🎧 測聽準備開始！請注意聽...";
-            return;
-        }
-        if (value.startsWith("AUD_STEP,") && box) {
-            let p = value.split(",");
-            box.style.background = "#d6eaf8";
-            box.innerHTML = "🔊 正在播放：" + p[2] + " Hz (第 " + p[3] + " 輪, " + p[4] + " dB)";
-            return;
-        }
-        if (value.startsWith("AUD_HIT,") && box) {
-            let p = value.split(",");
-            box.style.background = "#d4efdf";
-            box.innerHTML = "✅ 已收到反應！記錄 " + p[1] + " Hz (" + p[2] + " dB)";
-            return;
-        }
-        if (value === "AUD_DONE" && box) {
-            box.style.background = "#27ae60";
-            box.innerHTML = "🎉 全部測聽完成！EQ 已自動套用";
-            alert("🎉 聽力檢測全部完成！");
             return;
         }
 
