@@ -605,7 +605,7 @@
         }, 1200);
     }
 
-    // 6. 背景靜默重連與連線初始化
+    // 6. 修正 Bluefy 通知被 readValue 沖掉的問題：先讀完 SYNC，最後才開 Notifications！
     async function connectGATT() {
         document.getElementById('ble-status').innerText = "🟡 建立底層 GATT 連線...";
         try {
@@ -613,10 +613,13 @@
             const service = await server.getPrimaryService('000000ff-0000-1000-8000-00805f9b34fb');
             txCharacteristic = await service.getCharacteristic('0000ff01-0000-1000-8000-00805f9b34fb');
 
-            txCharacteristic.removeEventListener('characteristicvaluechanged', handleNotifications);
-			txCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
-			await txCharacteristic.startNotifications();
+            // 步驟 1：先讀取 SYNC 基準值 (同時完成韌體的「認證為手機網頁」)
             await syncFromESP32();
+
+            // 步驟 2：等 readValue 完成後，再開啟 Notifications 並綁定監聽 (防止 Bluefy 監聽失效)
+            await txCharacteristic.startNotifications();
+            txCharacteristic.removeEventListener('characteristicvaluechanged', handleNotifications);
+            txCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
 
             document.getElementById('ble-status').className = 'status-bar status-online';
             document.getElementById('ble-status').innerText = '🟢 藍牙已連線 (' + (bleDevice.name || 'ESP32') + ')';
@@ -624,26 +627,20 @@
             document.getElementById('tuning').style.opacity = '1';
             document.getElementById('tuning').style.pointerEvents = 'auto';
 
-            // 連上後 800ms 自動執行一次 ble_diag (內部會自動補上 \n)
-            setTimeout(function() { sendQuickCmd('ble_diag'); }, 800);
+            // 步驟 3：連線完成 1 秒後自動發送一次硬體自檢
+            setTimeout(function() { sendQuickCmd('ble_diag'); }, 1000);
         } catch (e) {
             console.error("❌ GATT 失敗:", e);
             showOffline("🔴 GATT 連線失敗，請手動重連");
         }
     }
 
-    // ⭐ 關鍵：自動在結尾加上 \n 換行符號！
-    // ⭐ 100% 與底下 Debug Console 發送按鈕走完全相同的 writeValue 通道！
+    // ⭐ 讓上面所有快捷按鈕 100% 走跟底下 Console 發送鈕一模一樣的 writeValue！
     async function sendQuickCmd(cmd) {
-        if (!txCharacteristic) { 
-            alert("請先連線藍牙！"); 
-            return; 
-        }
+        if (!txCharacteristic) { alert("請先連線藍牙！"); return; }
         let cleanCmd = cmd.trim();
         printToConsole(cleanCmd, true);
-
         try {
-            // 跟 sendConsoleCmd 一模一樣，只用標準 writeValue！
             await txCharacteristic.writeValue(new TextEncoder().encode(cleanCmd));
         } catch (e) {
             printToConsole("❌ 發送失敗：" + e);
